@@ -1,0 +1,109 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  /* Default to dark mode colors since we want a dark-first feel */
+  --background: oklch(0.14 0 0); /* very dark gray */
+  --foreground: oklch(0.98 0 0);
+  
+  --card: oklch(0.17 0 0); /* slightly lighter than background */
+  --card-foreground: oklch(0.98 0 0);
+  
+  --popover: oklch(0.17 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+  
+  --primary: oklch(0.98 0 0); /* White buttons */
+  --primary-foreground: oklch(0.14 0 0); /* Dark text on white ptns */
+  
+  --secondary: oklch(0.25 0 0);
+  --secondary-foreground: oklch(0.98 0 0);
+  
+  --muted: oklch(0.20 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+  
+  --destructive: oklch(0.577 0.245 27.325); /* standard red */
+  
+  --border: oklch(0.25 0 0);
+  --input: oklch(0.25 0 0);
+  --ring: oklch(0.40 0 0);
+  
+  --radius: 0.75rem;
+}
+
+.dark {
+  /* Explicit dark mode matches the root for default dark experience */
+  --background: oklch(0.13 0 0); 
+  --foreground: oklch(0.95 0 0);
+  
+  --card: oklch(0.16 0 0);
+  --card-foreground: oklch(0.95 0 0);
+  
+  --popover: oklch(0.16 0 0);
+  --popover-foreground: oklch(0.95 0 0);
+  
+  --primary: oklch(0.95 0 0);
+  --primary-foreground: oklch(0.13 0 0);
+  
+  --secondary: oklch(0.22 0 0);
+  --secondary-foreground: oklch(0.95 0 0);
+  
+  --muted: oklch(0.18 0 0);
+  --muted-foreground: oklch(0.60 0 0);
+  
+  --accent: oklch(0.20 0 0);
+  --accent-foreground: oklch(0.95 0 0);
+  
+  --border: oklch(0.22 0 0);
+  --input: oklch(0.22 0 0);
+  --ring: oklch(0.35 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary/20;
+    /* Force dark mode background globally to avoid flashing */
+    background-color: oklch(0.13 0 0);
+    color: oklch(0.95 0 0);
+  }
+}
