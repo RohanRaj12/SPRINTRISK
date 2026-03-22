@@ -3,12 +3,23 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, CheckSquare, GitPullRequest, Activity, Settings } from "lucide-react";
+import {
+  LayoutDashboard,
+  CheckSquare,
+  GitPullRequest,
+  Activity,
+  Settings,
+  ShieldCheck,
+  Webhook,
+} from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Sprint Health" },
   { href: "/jira", icon: CheckSquare, label: "Jira Issues" },
   { href: "/github", icon: GitPullRequest, label: "GitHub PRs" },
+  { href: "/approvals", icon: ShieldCheck, label: "Approvals", badge: 3 },
+  { href: "/audit-log", icon: Activity, label: "Audit Log" },
+  { href: "/integrations", icon: Webhook, label: "Integrations" },
 ];
 
 const SAVED_AUDITS = [
@@ -49,7 +60,12 @@ export function Sidebar({ className }: { className?: string }) {
                 )}
               >
                 <item.icon size={18} className="text-muted-foreground" />
-                <span>{item.label}</span>
+                <span className="flex-1">{item.label}</span>
+                {item.badge && item.badge > 0 && (
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500/20 text-orange-400 text-[10px] font-bold">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             ))}
           </div>

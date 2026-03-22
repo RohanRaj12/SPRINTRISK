@@ -1,93 +1,168 @@
 # Sprint Guardian
 
-Sprint Guardian is an agentic AI system that audits engineering sprint health, designed for modern development workflows. It integrates deeply with Atlassian Jira, GitHub, and Slack to help your team unblock stalled tickets, review pull requests, and keep sprints on track. 
+> **An Agentic AI Sprint Operator Platform** — A multi-tenant SaaS that autonomously audits engineering sprint health, operates on behalf of users across GitHub, Jira, and Slack, and provides enterprise-grade security through Auth0 Token Vault.
 
-This project was built during the Auth0 "Authorized to Act" Hackathon, emphasizing robust security through the Auth0 Token Vault.
+Built during the Auth0 "Authorized to Act" Hackathon.
 
-![Sprint Guardian Dashboard Demo](./frontend/public/sprint_guardian.png) **(Placeholder: add real screenshot here)*
+## Architecture Overview
 
-## Architecture
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Sprint Guardian Platform                     │
+├──────────────────┬──────────────────────────────────────────────┤
+│   Next.js 15     │          Fastify Backend (TypeScript)        │
+│   Frontend       │  ┌────────────────────────────────────────┐  │
+│                  │  │  Agent Orchestrator (7-Phase Loop)      │  │
+│  ● Dashboard     │  │  OBSERVE → DIAGNOSE → PLAN → CLASSIFY  │  │
+│  ● Approval Inbox│  │  → EXECUTE → VERIFY → LEARN            │  │
+│  ● Audit Timeline│  ├────────────────────────────────────────┤  │
+│  ● Integrations  │  │  Services                               │  │
+│  ● Agent Chat    │  │  ● Policy Engine    ● Approval Service  │  │
+│                  │  │  ● Memory Service   ● Audit Logger      │  │
+│                  │  │  ● Token Vault      ● Rate Limiter      │  │
+│                  │  ├────────────────────────────────────────┤  │
+│                  │  │  Integration Adapters                    │  │
+│                  │  │  ● GitHub  ● Jira  ● Slack              │  │
+└──────────────────┴──┴────────────────────────────────────────┴──┘
+                          │                       │
+                    ┌─────┴─────┐          ┌──────┴──────┐
+                    │ PostgreSQL│          │ Auth0       │
+                    │ (RLS)     │          │ Token Vault │
+                    └───────────┘          └─────────────┘
+```
 
-![Architecture Diagram](./frontend/public/architecture.png) **(Placeholder)*
+## Tech Stack
 
-Sprint Guardian consists of a backend orchestrator and a Next.js frontend, driven by a powerful AI agent.
-
-*   **Backend:** Node.js, Fastify, TypeScript
-*   **Frontend:** Next.js 15, React, Tailwind CSS, shadcn/ui, Framer Motion
-*   **AI:** Google Gemini (via `@google/generative-ai`)
-*   **Identity & Security:** Auth0 (OIDC + Token Vault)
-*   **Integrations:** Jira Cloud (Atlassian), GitHub, Slack
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 15, React, Tailwind CSS, shadcn/ui, Framer Motion |
+| **Backend** | Node.js, Fastify, TypeScript |
+| **AI** | Google Gemini (`gemini-2.0-flash`) |
+| **Auth** | Auth0 (OIDC + Token Vault) |
+| **Database** | PostgreSQL with Row-Level Security |
+| **Integrations** | Jira Cloud, GitHub, Slack |
 
 ## Security Posture (Enterprise Ready)
 
-Sprint Guardian follows strict enterprise security best practices:
-1.  **Zero Hardcoded Credentials:** No Personal Access Tokens (PATs) or long-lived API keys are stored in the codebase or environment variables for third-party services.
-2.  **Auth0 Token Vault Integration:** All third-party interactions (Jira, GitHub, Slack) are authenticated using short-lived, delegated access tokens dynamically retrieved from the Auth0 Token Vault at runtime.
-3.  **Strict Scopes:** Application only requests the minimum necessary scopes for third-party services.
+1. **Zero Hardcoded Credentials** — No PATs or long-lived API keys stored anywhere.
+2. **Auth0 Token Vault** — All third-party access uses delegated tokens retrieved at runtime.
+3. **Strict Scopes** — Minimum necessary permissions per integration.
+4. **Multi-Tenant Isolation** — PostgreSQL Row-Level Security per organization.
+5. **Human-in-the-Loop** — High-risk actions require explicit human approval.
+
+## Agent Loop (7 Phases)
+
+| Phase | Description |
+|---|---|
+| **OBSERVE** | Aggregate data from Jira, GitHub, Slack |
+| **DIAGNOSE** | Identify root causes, not symptoms |
+| **PLAN** | Generate multi-step execution plan with LLM |
+| **CLASSIFY** | Mark each step as AUTO or APPROVAL_REQUIRED |
+| **EXECUTE** | Run steps via integration adapters with Token Vault |
+| **VERIFY** | Confirm success, retry on failure, fallback if needed |
+| **LEARN** | Store outcomes and patterns for future improvement |
 
 ## Prerequisites
 
-*   Node.js v20+
-*   An Auth0 Tenant
-*   Google Gemini API Key
-*   Jira Cloud, GitHub, and Slack integrations configured in Auth0 Token Vault
+* Node.js v20+
+* An Auth0 Tenant with Token Vault enabled
+* Google Gemini API Key
+* PostgreSQL 16+ (for production)
 
 ## Setup Instructions
 
 ### 1. Auth0 Configuration
-1.  Set up an application in your Auth0 tenant.
-2.  Enable and configure the "Token Vault" for GitHub, Jira, and Slack.
-3.  Ensure your application asks for the appropriate scopes corresponding to these services.
+1. Create an application in your Auth0 tenant.
+2. Enable Auth0 Organizations for multi-tenancy.
+3. Configure Token Vault connections for GitHub, Jira, and Slack.
+4. Set up an M2M application for server-to-Auth0 Management API access.
 
 ### 2. Environment Variables
-Copy the example environment files and fill in the necessary details.
 
 **Backend (`/.env`):**
 ```bash
 cp .env.example .env
 ```
-Ensure you set your Auth0 Domain, Audience, client details, and Gemini API key.
 
 **Frontend (`/frontend/.env.local`):**
 ```bash
 cp frontend/.env.example frontend/.env.local
 ```
-Set the Next.js target URLs and Auth0 client credentials.
 
-### 3. Install Dependencies
-Install dependencies for both the backend and frontend.
-
+### 3. Database Setup
 ```bash
-# In the root (backend)
+# Run the schema migration
+psql -d sprint_guardian -f src/db/schema.sql
+```
+
+### 4. Install Dependencies
+```bash
+# Backend
 npm install
 
-# In the frontend directory
-cd frontend
-npm install
+# Frontend
+cd frontend && npm install
 ```
 
-### 4. Running the Application
-
-**Run the Backend:**
+### 5. Run the Application
 ```bash
-# From the root directory
+# Backend (from root)
 npm run dev
-```
-The backend Fastify server will start on `http://localhost:8080`.
+# → http://localhost:3001
 
-**Run the Frontend:**
-```bash
-# From the frontend directory
+# Frontend (from /frontend)
 npm run dev
+# → http://localhost:3000
 ```
-The Next.js frontend will start on `http://localhost:3000`.
 
-## Features
+## Project Structure
 
-*   **Sprint Health Feed:** Get a real-time, AI-summarized feed of your sprint's status.
-*   **AI Developer Assistant:** Persistent right-hand bot that you can chat with to get specific insights about PRs and Tickets.
-*   **Proactive Block Resolution:** Automatically prompts to send Slack DMs to engineers whose tickets are stale or PRs are failing CI.
-*   **Direct External Links:** Click directly into the Jira ticket or GitHub PR.
+```
+src/
+├── agent/           # 🧠 Agent core (loop, planner, classifier, types)
+├── services/        # 🔐 Core services (approval, audit, memory, policy, token vault)
+├── tools/           # 🔧 Integration adapters (Jira, GitHub, Slack)
+├── routes/          # 🌐 API routes (chat, approvals, audit, integrations)
+├── plugins/         # Fastify plugins (auth)
+├── scheduler/       # ⏰ Cron-based automation
+├── db/              # 🗄️ Schema and migrations
+└── lib/             # Shared utilities (retry, errors, rate limiter)
+
+frontend/src/
+├── app/             # Next.js App Router pages
+│   ├── approvals/   # 🆕 Approval Inbox
+│   ├── audit-log/   # 🆕 Audit Timeline
+│   ├── integrations/# 🆕 Integrations Setup
+│   ├── jira/        # Jira Issues
+│   ├── github/      # GitHub PRs
+│   └── settings/    # Settings
+├── components/      # UI components (shadcn/ui, layout, features)
+└── lib/             # API client, utilities
+```
+
+## Key Features
+
+* **Sprint Health Feed** — AI-summarized sprint status with actionable insights
+* **Approval Inbox** — Card-based UI with risk indicators for human-in-the-loop review
+* **Audit Timeline** — Chronological log of every agent action and decision
+* **Agent Chat** — Natural language interface to query sprint health
+* **Memory System** — Agent learns from past runs to improve future decisions
+* **Policy Engine** — Configurable rules for risk classification and guardrails
+* **Circuit Breaker** — Resilience patterns for external API failures
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check (unauthenticated) |
+| `POST` | `/chat` | Send message to agent |
+| `POST` | `/audit/trigger` | Trigger manual audit |
+| `GET` | `/api/approvals` | List approvals |
+| `POST` | `/api/approvals/:id/approve` | Approve an action |
+| `POST` | `/api/approvals/:id/reject` | Reject an action |
+| `GET` | `/api/agent-runs` | List agent run history |
+| `GET` | `/api/audit-logs` | Query audit logs |
+| `GET` | `/api/integrations/status` | Check integration connectivity |
 
 ## License
 MIT License.

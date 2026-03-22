@@ -5,6 +5,9 @@ import authPlugin from "./plugins/auth.js";
 import { healthRoutes } from "./routes/health.js";
 import { chatRoutes } from "./routes/chat.js";
 import { auditRoutes } from "./routes/audit.js";
+import { approvalRoutes } from "./routes/approvals.js";
+import { agentRunRoutes } from "./routes/agent-runs.js";
+import { integrationRoutes } from "./routes/integrations.js";
 import { startScheduler } from "./scheduler/index.js";
 
 async function main() {
@@ -26,6 +29,9 @@ async function main() {
   await app.register(healthRoutes);
   await app.register(chatRoutes);
   await app.register(auditRoutes);
+  await app.register(approvalRoutes);
+  await app.register(agentRunRoutes);
+  await app.register(integrationRoutes);
 
   // ── Start ──
   try {
