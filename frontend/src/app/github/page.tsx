@@ -1,54 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { GitPullRequest, CheckCircle2, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
-
-const GITHUB_PRS: IssueProps[] = [
-  {
-    id: "PR-118",
-    title: "Fix auth race condition in React router",
-    assignee: "Sam",
-    status: "review",
-    provider: "github",
-    aiInsight: "PR is approved but needs merge conflict resolution before it can be deployed.",
-  },
-  {
-    id: "PR-114",
-    title: "Add Token Vault caching layer",
-    assignee: "Alex",
-    status: "blocked",
-    daysStale: 3,
-    provider: "github",
-    aiInsight: "CI is failing on the typecheck step. 2 files have type errors that need fixing.",
-  },
-  {
-    id: "PR-121",
-    title: "Upgrade Fastify to v5",
-    assignee: "Jordan",
-    status: "healthy",
-    provider: "github",
-  },
-  {
-    id: "PR-119",
-    title: "Add Slack notification Block Kit formatting",
-    assignee: "Morgan",
-    status: "review",
-    provider: "github",
-    aiInsight: "Awaiting review from 2 reviewers for 3 days. Consider pinging them on Slack.",
-  },
-];
+import { useDemoMode } from "@/lib/demo-mode-context";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default function GitHubPage() {
   const [selectedPR, setSelectedPR] = useState<IssueProps | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [prs, setPrs] = useState<IssueProps[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
+
+  useEffect(() => {
+    async function fetchPRs() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/prs`);
+        if (res.ok) {
+          const json = await res.json();
+          setPrs(json.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch PRs", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchPRs();
+  }, [isDemoMode]);
 
   const filteredPRs = filter === "all"
-    ? GITHUB_PRS
-    : GITHUB_PRS.filter((pr) => pr.status === filter);
+    ? prs
+    : prs.filter((pr) => pr.status === filter);
 
   return (
     <>
@@ -60,7 +48,7 @@ export default function GitHubPage() {
               <h1 className="text-2xl font-semibold tracking-tight">GitHub PRs</h1>
             </div>
             <p className="text-sm text-muted-foreground">
-              {GITHUB_PRS.length} open pull requests across repositories.
+              {prs.length} open pull requests across repositories.
             </p>
           </div>
 
@@ -79,49 +67,69 @@ export default function GitHubPage() {
           </div>
 
           <div className="space-y-3 pb-8">
-            {filteredPRs.map((pr) => {
-              const statusIcon =
-                pr.status === "review" ? <GitPullRequest size={14} className="text-blue-500" /> :
-                pr.status === "blocked" ? <XCircle size={14} className="text-red-500" /> :
-                <CheckCircle2 size={14} className="text-emerald-500" />;
+            {loading ? (
+              <div className="flex justify-center items-center h-48">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : prs.length === 0 ? (
+              <EmptyState
+                icon={GitPullRequest}
+                title="No Pull Requests Found"
+                description="There are currently no open pull requests in the tracked repositories."
+              />
+            ) : filteredPRs.length === 0 ? (
+              <div className="text-center py-24 px-4 rounded-xl border border-dashed border-border/60 bg-card/20 min-h-[250px] flex flex-col items-center justify-center">
+                <GitPullRequest className="h-8 w-8 text-muted-foreground/40 mb-3" />
+                <h3 className="text-lg font-medium text-foreground/80">No {filter} PRs</h3>
+                <p className="text-sm text-muted-foreground/80 mt-2">
+                  Try changing your filter to see other PRs.
+                </p>
+              </div>
+            ) : (
+              filteredPRs.map((pr) => {
+                const statusIcon =
+                  pr.status === "review" ? <GitPullRequest size={14} className="text-blue-500" /> :
+                  pr.status === "blocked" ? <XCircle size={14} className="text-red-500" /> :
+                  <CheckCircle2 size={14} className="text-emerald-500" />;
 
-              return (
-                <button
-                  type="button"
-                  key={pr.id}
-                  onClick={() => setSelectedPR(pr)}
-                  className="group w-full text-left rounded-xl border border-border/50 bg-card/50 p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-lg hover:bg-card"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5">{statusIcon}</div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-mono text-muted-foreground">{pr.id}</span>
-                          <Badge variant="outline" className="text-[10px] uppercase">
-                            {pr.status}
-                          </Badge>
-                          {pr.daysStale && (
-                            <span className="text-xs text-muted-foreground">{pr.daysStale}d stale</span>
+                return (
+                  <button
+                    type="button"
+                    key={pr.id}
+                    onClick={() => setSelectedPR(pr)}
+                    className="group w-full text-left rounded-xl border border-border/50 bg-card/50 p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-lg hover:bg-card"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5">{statusIcon}</div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-mono text-muted-foreground">{pr.id}</span>
+                            <Badge variant="outline" className="text-[10px] uppercase">
+                              {pr.status}
+                            </Badge>
+                            {pr.daysStale && (
+                              <span className="text-xs text-muted-foreground">{pr.daysStale}d stale</span>
+                            )}
+                          </div>
+                          <h3 className="text-sm font-medium group-hover:text-primary transition-colors">
+                            {pr.title}
+                          </h3>
+                          {pr.aiInsight && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                              <span className="text-primary font-medium">AI:</span> {pr.aiInsight}
+                            </p>
                           )}
                         </div>
-                        <h3 className="text-sm font-medium group-hover:text-primary transition-colors">
-                          {pr.title}
-                        </h3>
-                        {pr.aiInsight && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                            <span className="text-primary font-medium">AI:</span> {pr.aiInsight}
-                          </p>
-                        )}
+                      </div>
+                      <div className="w-7 h-7 rounded-full bg-secondary text-[10px] flex items-center justify-center font-medium shrink-0">
+                        {pr.assignee.substring(0, 2).toUpperCase()}
                       </div>
                     </div>
-                    <div className="w-7 h-7 rounded-full bg-secondary text-[10px] flex items-center justify-center font-medium shrink-0">
-                      {pr.assignee.substring(0, 2).toUpperCase()}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

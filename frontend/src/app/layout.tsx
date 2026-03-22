@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google"; // Switch to Inter for a cleaner look
 import { Sidebar } from "@/components/layout/sidebar";
 import { AgentPanel } from "@/components/layout/agent-panel";
+import { DemoModeProvider } from "@/lib/demo-mode-context";
 import "./globals.css";
 
-const geistSans = Geist({
+const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
 });
@@ -27,13 +28,17 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen w-screen overflow-hidden flex`}
+        className={`${inter.variable} font-sans antialiased text-foreground bg-background selection:bg-primary/20`}
       >
-        <Sidebar className="shrink-0" />
-        <main className="flex-1 min-w-0 bg-background h-full">
-          {children}
-        </main>
-        <AgentPanel />
+        <DemoModeProvider>
+          <div className="flex h-screen w-full overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 relative flex flex-col bg-background/50">
+              {children}
+            </main>
+            <AgentPanel />
+          </div>
+        </DemoModeProvider>
       </body>
     </html>
   );

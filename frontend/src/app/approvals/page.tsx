@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Shield,
   ShieldAlert,
@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Zap,
   Eye,
+  Inbox
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,8 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDemoMode } from "@/lib/demo-mode-context";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // ── Types ──
 
@@ -42,86 +45,6 @@ interface ApprovalItem {
   status: "pending" | "approved" | "rejected" | "expired";
   agentReasoning: string;
 }
-
-// ── Sample Data ──
-
-const SAMPLE_APPROVALS: ApprovalItem[] = [
-  {
-    id: "apv-001",
-    title: "Send Slack DM to Alex about stale ticket ENG-402",
-    description:
-      "The agent wants to send a direct message to Alex (alex@company.com) notifying them that ticket ENG-402 hasn't been updated in 4 days and has a failing CI on PR #114.",
-    riskLevel: "high",
-    riskReasoning:
-      "Direct messages to individuals require approval per organization policy.",
-    actionPreview: {
-      tool: "slack_notifier",
-      target: "alex@company.com (DM)",
-      action: "Send Direct Message",
-      parameters: {
-        severity: "warning",
-        message:
-          'Hey Alex — ENG-402 "Implement Token Vault caching layer" hasn\'t been updated in 4 days. PR #114 is also failing CI on the typecheck step. Can you take a look?',
-      },
-    },
-    runId: "run-abc-123",
-    requestedAt: "2026-03-22T10:30:00Z",
-    expiresAt: "2026-03-23T10:30:00Z",
-    status: "pending",
-    agentReasoning:
-      "ENG-402 is correlated with failing PR #114. Both are assigned to Alex. A direct DM is the fastest way to unblock this work.",
-  },
-  {
-    id: "apv-002",
-    title: "Post sprint health summary to #engineering",
-    description:
-      "The agent wants to post a comprehensive sprint health report to the #engineering Slack channel summarizing 3 stale tickets and 2 failing CI checks.",
-    riskLevel: "medium",
-    riskReasoning:
-      'Checkpoint: 5 steps executed automatically. Pausing for human review.',
-    actionPreview: {
-      tool: "slack_notifier",
-      target: "#engineering (Channel)",
-      action: "Post Message",
-      parameters: {
-        severity: "warning",
-        message:
-          "📊 Sprint Health Report: 3 stale tickets, 2 failing CIs, 1 PR blocked on review...",
-      },
-    },
-    runId: "run-abc-123",
-    requestedAt: "2026-03-22T10:32:00Z",
-    expiresAt: "2026-03-23T10:32:00Z",
-    status: "pending",
-    agentReasoning:
-      "Sprint has multiple issues that the team should be aware of. Posting to the engineering channel ensures visibility.",
-  },
-  {
-    id: "apv-003",
-    title: "Request review ping for stale PR #119",
-    description:
-      "The agent wants to DM Morgan about PR #119 which has been awaiting review for 3 days from 2 reviewers.",
-    riskLevel: "medium",
-    riskReasoning:
-      'Risk level "medium" meets the approval threshold for Slack DMs.',
-    actionPreview: {
-      tool: "slack_notifier",
-      target: "morgan@company.com (DM)",
-      action: "Send Direct Message",
-      parameters: {
-        severity: "info",
-        message:
-          "Hey Morgan — your PR #119 has been waiting on reviews from Sam and Jordan for 3 days. Would you like me to ping them?",
-      },
-    },
-    runId: "run-def-456",
-    requestedAt: "2026-03-22T09:15:00Z",
-    expiresAt: "2026-03-23T09:15:00Z",
-    status: "pending",
-    agentReasoning:
-      "PR #119 is a review bottleneck. Notifying the author is a low-friction way to unblock it.",
-  },
-];
 
 // ── Risk Configuration ──
 
@@ -431,7 +354,27 @@ function getTimeUntil(dateStr: string): string {
 
 export default function ApprovalsPage() {
   const [filter, setFilter] = useState<string>("pending");
-  const [approvals, setApprovals] = useState(SAMPLE_APPROVALS);
+  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
+
+  useEffect(() => {
+    async function fetchApprovals() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/approvals`);
+        if (res.ok) {
+          const json = await res.json();
+          setApprovals(json.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch approvals", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchApprovals();
+  }, [isDemoMode]);
 
   const filteredApprovals =
     filter === "all"
@@ -455,73 +398,85 @@ export default function ApprovalsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        {/* Header */}
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="relative">
-              <ShieldCheck className="h-6 w-6 text-primary" />
-              {pendingCount > 0 && (
-                <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-orange-500 text-[9px] font-bold text-white flex items-center justify-center">
-                  {pendingCount}
-                </span>
-              )}
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="flex flex-col gap-4 px-8 py-8 md:flex-row md:items-end md:justify-between pb-6 border-b border-border/40">
+        <div className="space-y-1 relative">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <ShieldCheck size={14} />
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Approval Inbox
-            </h1>
+            {pendingCount > 0 && (
+              <span className="flex items-center justify-center rounded-full bg-red-500 px-2 min-w-[20px] h-5 text-[10px] font-bold text-white tracking-widest leading-none shadow-sm shadow-red-500/20">
+                {pendingCount}
+              </span>
+            )}
           </div>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Approval Inbox
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1 max-w-[600px]">
             Review and approve agent actions before they execute.
             {pendingCount > 0 &&
               ` ${pendingCount} action${pendingCount > 1 ? "s" : ""} awaiting your decision.`}
           </p>
         </div>
-
+        
         {/* Filters */}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 p-1 bg-muted/40 rounded-lg border border-border/50">
           {["pending", "approved", "rejected", "all"].map((f) => (
             <Button
               key={f}
               variant={filter === f ? "secondary" : "ghost"}
               size="sm"
-              className="text-xs capitalize"
+              className={`text-xs capitalize h-8 px-3 ${filter === f ? "bg-background shadow-sm" : "hover:bg-background/50"}`}
               onClick={() => setFilter(f)}
             >
               {f === "pending" ? `Pending (${pendingCount})` : f}
             </Button>
           ))}
         </div>
+      </div>
 
-        {/* Approval Cards */}
-        <div className="space-y-4 pb-8">
-          <AnimatePresence mode="popLayout">
-            {filteredApprovals.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex flex-col items-center justify-center py-16 text-center"
-              >
-                <ShieldCheck className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                <h3 className="text-sm font-medium text-muted-foreground mb-1">
-                  All clear!
-                </h3>
-                <p className="text-xs text-muted-foreground/60">
-                  No {filter !== "all" ? filter : ""} approvals to show.
+      <div className="flex-1 overflow-y-auto px-8 py-8 relative">
+        <div className="max-w-4xl mx-auto h-full flex flex-col">
+          {loading ? (
+            <div className="flex flex-col justify-center items-center h-full min-h-[300px] space-y-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="text-sm text-muted-foreground">Loading approvals...</p>
+            </div>
+          ) : approvals.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center mt-[-40px]">
+              <EmptyState
+                icon={Inbox}
+                title="All caught up"
+                description="There are currently no agent actions waiting for your approval. When Sprint Guardian proposes a high-risk action (like sending a Slack broadcast), it will appear here."
+              />
+            </div>
+          ) : filteredApprovals.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center mt-[-40px]">
+              <div className="text-center py-16 px-6 rounded-xl border border-dashed border-border/60 bg-card/20 min-h-[250px] w-full max-w-xl flex flex-col items-center justify-center">
+                <ShieldCheck className="h-10 w-10 text-muted-foreground/30 mb-4" />
+                <h3 className="text-lg font-medium text-foreground/80">No {filter} approvals</h3>
+                <p className="text-sm text-muted-foreground/80 mt-2 max-w-[300px]">
+                  You have no {filter} requests right now. Try changing your filter to see other requests.
                 </p>
-              </motion.div>
-            ) : (
-              filteredApprovals.map((approval) => (
-                <ApprovalCard
-                  key={approval.id}
-                  approval={approval}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                />
-              ))
-            )}
-          </AnimatePresence>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 pb-12">
+              <AnimatePresence initial={false} mode="popLayout">
+                {filteredApprovals.map((approval) => (
+                  <ApprovalCard
+                    key={approval.id}
+                    approval={approval}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       </div>
     </div>

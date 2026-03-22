@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { AlertCircle, CheckCircle2, Clock, GitPullRequest, ArrowUpRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { AlertCircle, CheckCircle2, Clock, GitPullRequest, ArrowUpRight, FolderSync } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { IssueDetailModal } from "./issue-detail";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useDemoMode } from "@/lib/demo-mode-context";
 
 export interface IssueProps {
   id: string;
@@ -93,44 +95,37 @@ function IssueCard({ issue, onClick }: { issue: IssueProps; onClick: () => void 
   );
 }
 
-const SAMPLE_ISSUES: IssueProps[] = [
-  {
-    id: "ENG-402",
-    title: "Implement Token Vault caching layer",
-    assignee: "Alex",
-    status: "stale",
-    daysStale: 4,
-    provider: "jira",
-    aiInsight: "This ticket hasn't moved in 4 days. The associated PR #114 is failing CI on the typecheck step.",
-  },
-  {
-    id: "PR-118",
-    title: "Fix auth race condition in React router",
-    assignee: "Sam",
-    status: "review",
-    provider: "github",
-    aiInsight: "PR is approved but needs merge conflict resolution before it can be deployed.",
-  },
-  {
-    id: "ENG-399",
-    title: "Design system dark mode implementation",
-    assignee: "Taylor",
-    status: "blocked",
-    daysStale: 2,
-    provider: "jira",
-    aiInsight: "Blocked waiting on final color palette approval from product team.",
-  },
-  {
-    id: "ENG-405",
-    title: "Update Next.js to v15",
-    assignee: "Jordan",
-    status: "healthy",
-    provider: "jira",
-  },
-];
-
 export function IssueFeed() {
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
+  const [issues, setIssues] = useState<IssueProps[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
+
+  useEffect(() => {
+    async function fetchIssues() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/issues`);
+        if (res.ok) {
+          const json = await res.json();
+          setIssues(json.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch issues", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchIssues();
+  }, [isDemoMode]); // Refetch when demo mode changes
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -139,18 +134,28 @@ export function IssueFeed() {
           <div>
             <h1 className="text-2xl font-semibold mb-1 tracking-tight">Sprint Health</h1>
             <p className="text-sm text-muted-foreground">
-              3 issues require attention today. AI analysis complete.
+              {issues.length > 0 
+                ? `${issues.length} issue${issues.length === 1 ? "" : "s"} tracked. AI analysis complete.`
+                : "No issues tracked currently."}
             </p>
           </div>
 
           <div className="flex flex-col gap-3 pb-8">
-            {SAMPLE_ISSUES.map((issue) => (
-              <IssueCard
-                key={issue.id}
-                issue={issue}
-                onClick={() => setSelectedIssue(issue)}
+            {issues.length === 0 ? (
+              <EmptyState
+                icon={FolderSync}
+                title="No active issues found"
+                description="Sprint Guardian couldn't find any open issues in your connected integrations. Connect Jira or GitHub in the Integrations tab to start tracking your sprint."
               />
-            ))}
+            ) : (
+              issues.map((issue) => (
+                <IssueCard
+                  key={issue.id}
+                  issue={issue}
+                  onClick={() => setSelectedIssue(issue)}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>

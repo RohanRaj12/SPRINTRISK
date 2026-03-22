@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Webhook,
 } from "lucide-react";
+import { DemoModeToggle } from "./demo-mode-toggle";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Sprint Health" },
@@ -41,6 +42,10 @@ export function Sidebar({ className }: { className?: string }) {
           <span>Sprint Guardian</span>
         </div>
       </Link>
+
+      <div className="p-4 border-b border-border/50">
+        <DemoModeToggle />
+      </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-6">
         <div>

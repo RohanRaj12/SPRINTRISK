@@ -25,6 +25,7 @@ Behavior rules:
 - When asked to audit a sprint, use the tools in sequence: Jira → GitHub → Slack.
 - Always provide a clear, concise summary of findings.
 - If a tool returns errors (e.g. missing credentials), explain the issue to the user.
+- If the user has not connected integrations and you are in live mode, tell them: "No data available. Please connect your integrations."
 - Use markdown formatting in your responses.
 - Be proactive: if you find stale tickets AND failing CI on the same repo, mention the correlation.
 - For Slack notifications, suggest appropriate severity levels based on findings.
@@ -101,19 +102,21 @@ export interface AgentResult {
  * @param message  - User's natural language prompt
  * @param userId   - Auth0 user ID (for Token Vault delegation)
  * @param registry - Tool registry containing all available tools
+ * @param demoMode - Whether the agent should run in demo mode
  * @param history  - Optional conversation history for multi-turn
  */
 export async function runAgent(
   message: string,
   userId: string,
   registry: ToolRegistry,
+  demoMode: boolean = false,
   history: Content[] = []
 ): Promise<AgentResult> {
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
 
   const model = genAI.getGenerativeModel({
     model: MODEL_NAME,
-    systemInstruction: SYSTEM_INSTRUCTION,
+    systemInstruction: SYSTEM_INSTRUCTION + (demoMode ? "\n\nCRITICAL: You are running in DEMO MODE. The tools will return static demo data. Acknowledge that you are running a simulated audit." : "\n\nCRITICAL: You are running in LIVE MODE against real production APIs."),
     tools: [
       {
         functionDeclarations: toolsToGeminiFunctions(registry),
@@ -155,6 +158,14 @@ export async function runAgent(
         let toolResult: unknown;
         if (!tool) {
           toolResult = { error: `Unknown tool: ${fc.name}` };
+        } else if (demoMode) {
+          // In demo mode, intercept tool calls and return static responses
+          // to prevent mutating live systems via Token Vault.
+          toolResult = {
+             status: "success",
+             note: `Demo mode active. Simulated execution of ${fc.name}.`,
+             simulated_data: true
+          };
         } else {
           try {
             toolResult = await tool.execute(

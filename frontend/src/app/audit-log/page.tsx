@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Activity,
   Bot,
@@ -14,11 +14,14 @@ import {
   Info,
   ChevronDown,
   Filter,
+  FileSearch,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDemoMode } from "@/lib/demo-mode-context";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // ── Types ──
 
@@ -33,131 +36,6 @@ interface AuditEntry {
   runId?: string;
   createdAt: string;
 }
-
-// ── Sample Data ──
-
-const SAMPLE_AUDIT_LOG: AuditEntry[] = [
-  {
-    id: "aud-001",
-    action: "agent.phase.observe",
-    category: "agent",
-    severity: "info",
-    description: "Agent started observation phase — querying Jira and GitHub for sprint data.",
-    metadata: { phase: "observe", runId: "run-abc-123" },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:00Z",
-  },
-  {
-    id: "aud-002",
-    action: "integration.jira.query",
-    category: "integration",
-    severity: "info",
-    description: "Jira API: Queried project ENG for open issues. Found 12 issues, 3 stale.",
-    metadata: { provider: "jira", project: "ENG", issuesFound: 12, staleCount: 3 },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:02Z",
-  },
-  {
-    id: "aud-003",
-    action: "integration.github.query",
-    category: "integration",
-    severity: "info",
-    description: "GitHub API: Checked acme-corp/backend-api. 4 open PRs, 1 failing CI.",
-    metadata: { provider: "github", repo: "acme-corp/backend-api", prs: 4, failing: 1 },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:04Z",
-  },
-  {
-    id: "aud-004",
-    action: "agent.phase.diagnose",
-    category: "agent",
-    severity: "info",
-    description: "Diagnosis complete: Root cause identified as blocked PRs causing stale tickets.",
-    metadata: { phase: "diagnose", rootCause: "PR #114 CI failure blocking ENG-402" },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:06Z",
-  },
-  {
-    id: "aud-005",
-    action: "agent.phase.plan",
-    category: "agent",
-    severity: "info",
-    description: "Generated 4-step execution plan with confidence 0.87.",
-    metadata: { phase: "plan", steps: 4, confidence: 0.87, autoSteps: 2, approvalSteps: 2 },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:08Z",
-  },
-  {
-    id: "aud-006",
-    action: "agent.step.completed",
-    category: "agent",
-    severity: "info",
-    description: 'Step "jira_analyzer" completed successfully — found 3 stale tickets.',
-    metadata: { tool: "jira_analyzer", staleCount: 3, duration: "1.2s" },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:12Z",
-  },
-  {
-    id: "aud-007",
-    action: "approval.created",
-    category: "approval",
-    severity: "warning",
-    description: "Approval required: Agent wants to send Slack DM to Alex about ENG-402.",
-    metadata: { approvalId: "apv-001", riskLevel: "high", target: "alex@company.com" },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:30:14Z",
-  },
-  {
-    id: "aud-008",
-    action: "approval.approved",
-    category: "approval",
-    severity: "info",
-    description: 'Step approved by rohan@company.com — "Looks good, send the reminder."',
-    metadata: { approvalId: "apv-001", decidedBy: "rohan@company.com" },
-    userId: "auth0|user-rohan",
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:35:20Z",
-  },
-  {
-    id: "aud-009",
-    action: "integration.slack.dm",
-    category: "integration",
-    severity: "info",
-    description: "Slack DM sent to Alex regarding stale ticket ENG-402.",
-    metadata: { provider: "slack", target: "alex@company.com", messageId: "msg-xyz" },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:35:22Z",
-  },
-  {
-    id: "aud-010",
-    action: "agent.step.failed",
-    category: "agent",
-    severity: "error",
-    description: 'Step "slack_notifier" failed: Rate limited by Slack API. Retrying in 5s.',
-    metadata: { tool: "slack_notifier", error: "429 Too Many Requests", retryIn: "5s" },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:35:25Z",
-  },
-  {
-    id: "aud-011",
-    action: "auth.token_refresh",
-    category: "auth",
-    severity: "info",
-    description: "M2M management token refreshed for Auth0 API access.",
-    metadata: { expiresIn: "86400s" },
-    createdAt: "2026-03-22T10:00:00Z",
-  },
-  {
-    id: "aud-012",
-    action: "agent.phase.learn",
-    category: "agent",
-    severity: "info",
-    description: "Learning phase: Stored 3 new patterns and 4 outcomes from this run.",
-    metadata: { phase: "learn", patternsStored: 3, outcomesStored: 4 },
-    runId: "run-abc-123",
-    createdAt: "2026-03-22T10:36:00Z",
-  },
-];
 
 // ── Configuration ──
 
@@ -284,8 +162,31 @@ function AuditEntryRow({ entry, isLast }: { entry: AuditEntry; isLast: boolean }
 export default function AuditLogPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
 
-  const filteredEntries = SAMPLE_AUDIT_LOG.filter((e) => {
+  useEffect(() => {
+    async function fetchLogs() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/audit-log`);
+        if (res.ok) {
+          const json = await res.json();
+          // Assuming the backend uses `timestamp` but the frontend expects `createdAt`. Map it.
+          const mapped = (json.data || []).map((e: any) => ({ ...e, createdAt: e.timestamp || e.createdAt }));
+          setEntries(mapped);
+        }
+      } catch (err) {
+        console.error("Failed to fetch audit logs", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLogs();
+  }, [isDemoMode]);
+
+  const filteredEntries = entries.filter((e) => {
     if (categoryFilter !== "all" && e.category !== categoryFilter) return false;
     if (severityFilter !== "all" && e.severity !== severityFilter) return false;
     return true;
@@ -293,7 +194,7 @@ export default function AuditLogPage() {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  const categoryCounts = SAMPLE_AUDIT_LOG.reduce<Record<string, number>>(
+  const categoryCounts = entries.reduce<Record<string, number>>(
     (acc, e) => {
       acc[e.category] = (acc[e.category] ?? 0) + 1;
       return acc;
@@ -317,7 +218,19 @@ export default function AuditLogPage() {
           </p>
         </div>
 
-        {/* Summary Cards */}
+        {loading ? (
+          <div className="flex justify-center items-center h-48">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : entries.length === 0 ? (
+          <EmptyState
+            icon={FileSearch}
+            title="No audit logs available"
+            description="There are no recorded actions yet. Connect integrations and start an agent run to see timeline activity."
+          />
+        ) : (
+          <>
+            {/* Summary Cards */}
         <div className="grid grid-cols-4 gap-3">
           {(Object.keys(CATEGORY_CONFIG) as Array<keyof typeof CATEGORY_CONFIG>).map((key) => {
             const cfg = CATEGORY_CONFIG[key];
@@ -376,6 +289,8 @@ export default function AuditLogPage() {
             ))
           )}
         </div>
+          </>
+        )}
       </div>
     </div>
   );

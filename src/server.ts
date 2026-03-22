@@ -8,6 +8,8 @@ import { auditRoutes } from "./routes/audit.js";
 import { approvalRoutes } from "./routes/approvals.js";
 import { agentRunRoutes } from "./routes/agent-runs.js";
 import { integrationRoutes } from "./routes/integrations.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
+import { settingsRoutes } from "./routes/settings.js";
 import { startScheduler } from "./scheduler/index.js";
 
 async function main() {
@@ -32,6 +34,8 @@ async function main() {
   await app.register(approvalRoutes);
   await app.register(agentRunRoutes);
   await app.register(integrationRoutes);
+  await app.register(dashboardRoutes);
+  await app.register(settingsRoutes);
 
   // ── Start ──
   try {

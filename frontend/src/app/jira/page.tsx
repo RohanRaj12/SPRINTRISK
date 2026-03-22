@@ -1,63 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CheckSquare, Clock, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
-
-const JIRA_ISSUES: IssueProps[] = [
-  {
-    id: "ENG-402",
-    title: "Implement Token Vault caching layer",
-    assignee: "Alex",
-    status: "stale",
-    daysStale: 4,
-    provider: "jira",
-    aiInsight: "This ticket hasn't moved in 4 days. The associated PR #114 is failing CI on the typecheck step.",
-  },
-  {
-    id: "ENG-399",
-    title: "Design system dark mode implementation",
-    assignee: "Taylor",
-    status: "blocked",
-    daysStale: 2,
-    provider: "jira",
-    aiInsight: "Blocked waiting on final color palette approval from product team.",
-  },
-  {
-    id: "ENG-405",
-    title: "Update Next.js to v15",
-    assignee: "Jordan",
-    status: "healthy",
-    provider: "jira",
-  },
-  {
-    id: "ENG-410",
-    title: "Add rate limiting to API endpoints",
-    assignee: "Morgan",
-    status: "stale",
-    daysStale: 6,
-    provider: "jira",
-    aiInsight: "No progress in 6 days. Assignee may need to be reminded or reassigned.",
-  },
-  {
-    id: "ENG-412",
-    title: "Migrate database to PostgreSQL 16",
-    assignee: "Casey",
-    status: "healthy",
-    provider: "jira",
-  },
-];
+import { useDemoMode } from "@/lib/demo-mode-context";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default function JiraPage() {
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [issues, setIssues] = useState<IssueProps[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
+
+  useEffect(() => {
+    async function fetchIssues() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/issues`);
+        if (res.ok) {
+          const json = await res.json();
+          // Filter only jira issues
+          const jiraOnly = (json.data || []).filter((i: IssueProps) => i.provider === "jira");
+          setIssues(jiraOnly);
+        }
+      } catch (err) {
+        console.error("Failed to fetch Jira issues", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchIssues();
+  }, [isDemoMode]);
 
   const filteredIssues = filter === "all"
-    ? JIRA_ISSUES
-    : JIRA_ISSUES.filter((i) => i.status === filter);
+    ? issues
+    : issues.filter((i) => i.status === filter);
 
   return (
     <>
@@ -69,7 +50,7 @@ export default function JiraPage() {
               <h1 className="text-2xl font-semibold tracking-tight">Jira Issues</h1>
             </div>
             <p className="text-sm text-muted-foreground">
-              {JIRA_ISSUES.length} tickets across the current sprint.
+              {issues.length} tickets across the current sprint.
             </p>
           </div>
 
@@ -88,49 +69,69 @@ export default function JiraPage() {
           </div>
 
           <div className="space-y-3 pb-8">
-            {filteredIssues.map((issue) => {
-              const statusIcon =
-                issue.status === "stale" ? <Clock size={14} className="text-amber-500" /> :
-                issue.status === "blocked" ? <AlertCircle size={14} className="text-red-500" /> :
-                <CheckSquare size={14} className="text-emerald-500" />;
+            {loading ? (
+              <div className="flex justify-center items-center h-48">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : issues.length === 0 ? (
+              <EmptyState
+                icon={CheckSquare}
+                title="No Jira Issues Found"
+                description="There are currently no Jira issues assigned to you in the active sprint."
+              />
+            ) : filteredIssues.length === 0 ? (
+              <div className="text-center py-24 px-4 rounded-xl border border-dashed border-border/60 bg-card/20 min-h-[250px] flex flex-col items-center justify-center">
+                <CheckSquare className="h-8 w-8 text-muted-foreground/40 mb-3" />
+                <h3 className="text-lg font-medium text-foreground/80">No {filter} issues</h3>
+                <p className="text-sm text-muted-foreground/80 mt-2">
+                  Try changing your filter to see other issues.
+                </p>
+              </div>
+            ) : (
+              filteredIssues.map((issue) => {
+                const statusIcon =
+                  issue.status === "stale" ? <Clock size={14} className="text-amber-500" /> :
+                  issue.status === "blocked" ? <AlertCircle size={14} className="text-red-500" /> :
+                  <CheckSquare size={14} className="text-emerald-500" />;
 
-              return (
-                <button
-                  type="button"
-                  key={issue.id}
-                  onClick={() => setSelectedIssue(issue)}
-                  className="group w-full text-left rounded-xl border border-border/50 bg-card/50 p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-lg hover:bg-card"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5">{statusIcon}</div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-mono text-muted-foreground">{issue.id}</span>
-                          <Badge variant="outline" className="text-[10px] uppercase">
-                            {issue.status}
-                          </Badge>
-                          {issue.daysStale && (
-                            <span className="text-xs text-muted-foreground">{issue.daysStale}d stale</span>
+                return (
+                  <button
+                    type="button"
+                    key={issue.id}
+                    onClick={() => setSelectedIssue(issue)}
+                    className="group w-full text-left rounded-xl border border-border/50 bg-card/50 p-4 cursor-pointer transition-all hover:border-primary/30 hover:shadow-lg hover:bg-card"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5">{statusIcon}</div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-mono text-muted-foreground">{issue.id}</span>
+                            <Badge variant="outline" className="text-[10px] uppercase">
+                              {issue.status}
+                            </Badge>
+                            {issue.daysStale && (
+                              <span className="text-xs text-muted-foreground">{issue.daysStale}d stale</span>
+                            )}
+                          </div>
+                          <h3 className="text-sm font-medium group-hover:text-primary transition-colors">
+                            {issue.title}
+                          </h3>
+                          {issue.aiInsight && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                              <span className="text-primary font-medium">AI:</span> {issue.aiInsight}
+                            </p>
                           )}
                         </div>
-                        <h3 className="text-sm font-medium group-hover:text-primary transition-colors">
-                          {issue.title}
-                        </h3>
-                        {issue.aiInsight && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                            <span className="text-primary font-medium">AI:</span> {issue.aiInsight}
-                          </p>
-                        )}
+                      </div>
+                      <div className="w-7 h-7 rounded-full bg-secondary text-[10px] flex items-center justify-center font-medium shrink-0">
+                        {issue.assignee.substring(0, 2).toUpperCase()}
                       </div>
                     </div>
-                    <div className="w-7 h-7 rounded-full bg-secondary text-[10px] flex items-center justify-center font-medium shrink-0">
-                      {issue.assignee.substring(0, 2).toUpperCase()}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

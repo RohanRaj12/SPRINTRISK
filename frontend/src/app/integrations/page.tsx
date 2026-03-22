@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Webhook,
   CheckCircle2,
@@ -18,72 +18,30 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
+import { useDemoMode } from "@/lib/demo-mode-context";
 
 // ── Types ──
 
 interface Integration {
-  id: string;
-  name: string;
   provider: "jira" | "github" | "slack";
+  displayName: string;
   description: string;
   status: "connected" | "disconnected" | "error";
-  connectedAs?: string;
-  scopes: string[];
+  account?: string;
+  scopes?: string[];
   lastSync?: string;
-  icon: string;
-  color: string;
-  bgGradient: string;
+  error?: string;
 }
 
-// ── Sample Data ──
-
-const INTEGRATIONS: Integration[] = [
-  {
-    id: "int-jira",
-    name: "Jira (Atlassian)",
-    provider: "jira",
-    description:
-      "Query sprint tickets, identify stale issues, and track assignment patterns across your Jira projects.",
-    status: "connected",
-    connectedAs: "alex@acme.atlassian.net",
-    scopes: ["read:jira-work", "read:jira-user", "read:sprint:jira-software"],
-    lastSync: "2026-03-22T10:15:00Z",
-    icon: "🔷",
-    color: "text-blue-400",
-    bgGradient: "from-blue-500/10 via-blue-500/5 to-transparent",
-  },
-  {
-    id: "int-github",
-    name: "GitHub",
-    provider: "github",
-    description:
-      "Monitor pull requests, CI/CD pipeline status, review bottlenecks, and merge readiness across repositories.",
-    status: "connected",
-    connectedAs: "acme-corp (Organization)",
-    scopes: ["repo:status", "read:org", "read:user", "read:discussion"],
-    lastSync: "2026-03-22T10:20:00Z",
-    icon: "🐙",
-    color: "text-zinc-300",
-    bgGradient: "from-zinc-500/10 via-zinc-500/5 to-transparent",
-  },
-  {
-    id: "int-slack",
-    name: "Slack",
-    provider: "slack",
-    description:
-      "Send sprint health notifications, DM developers about stale work, and post summaries to channels.",
-    status: "disconnected",
-    scopes: ["chat:write", "users:read", "users:read.email", "channels:read"],
-    icon: "💬",
-    color: "text-green-400",
-    bgGradient: "from-green-500/10 via-green-500/5 to-transparent",
-  },
-];
-
-// ── Integration Card ──
+const PROVIDER_UI_CONFIG: Record<string, { icon: string; color: string; bgGradient: string }> = {
+  jira: { icon: "🔷", color: "text-blue-400", bgGradient: "from-blue-500/10 via-blue-500/5 to-transparent" },
+  github: { icon: "🐙", color: "text-zinc-300", bgGradient: "from-zinc-500/10 via-zinc-500/5 to-transparent" },
+  slack: { icon: "💬", color: "text-green-400", bgGradient: "from-green-500/10 via-green-500/5 to-transparent" },
+};
 
 function IntegrationCard({ integration }: { integration: Integration }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const ui = PROVIDER_UI_CONFIG[integration.provider] || PROVIDER_UI_CONFIG.github;
 
   const statusConfig = {
     connected: {
@@ -123,16 +81,16 @@ function IntegrationCard({ integration }: { integration: Integration }) {
     >
       <Card className="relative overflow-hidden border-border/50 bg-card/50">
         {/* Gradient accent */}
-        <div className={`absolute inset-0 bg-gradient-to-r ${integration.bgGradient} pointer-events-none`} />
+        <div className={`absolute inset-0 bg-gradient-to-r ${ui.bgGradient} pointer-events-none`} />
 
         <div className="relative p-6 space-y-5">
           {/* Header */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">
-              <div className="text-3xl">{integration.icon}</div>
+              <div className="text-3xl">{ui.icon}</div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-base font-semibold">{integration.name}</h3>
+                  <h3 className="text-base font-semibold">{integration.displayName}</h3>
                   <Badge
                     variant="outline"
                     className={`text-[10px] px-2 py-0.5 uppercase border-transparent ${status.bg} ${status.color}`}
@@ -168,31 +126,33 @@ function IntegrationCard({ integration }: { integration: Integration }) {
                 )}
               </div>
 
-              {integration.connectedAs && (
+              {integration.account && (
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground">Account:</span>
                   <span className="font-mono text-foreground/80 bg-muted px-1.5 py-0.5 rounded">
-                    {integration.connectedAs}
+                    {integration.account}
                   </span>
                 </div>
               )}
 
               {/* Scopes */}
-              <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 font-medium">
-                  Granted Scopes
+              {integration.scopes && integration.scopes.length > 0 && (
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 font-medium">
+                    Granted Scopes
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {integration.scopes.map((scope) => (
+                      <span
+                        key={scope}
+                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted/50 border border-border/30 text-muted-foreground"
+                      >
+                        {scope}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {integration.scopes.map((scope) => (
-                    <span
-                      key={scope}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted/50 border border-border/30 text-muted-foreground"
-                    >
-                      {scope}
-                    </span>
-                  ))}
-                </div>
-              </div>
+              )}
 
               {/* Token Vault Security Notice */}
               <div className="flex items-start gap-2 text-[11px] text-emerald-400/80 bg-emerald-500/5 rounded border border-emerald-500/10 p-2">
@@ -216,16 +176,18 @@ function IntegrationCard({ integration }: { integration: Integration }) {
                     This integration requires you to connect your account through Auth0.
                     Sprint Guardian will use delegated access tokens — no passwords are ever stored.
                   </p>
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {integration.scopes.map((scope) => (
-                      <span
-                        key={scope}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted/50 border border-border/30 text-muted-foreground"
-                      >
-                        {scope}
-                      </span>
-                    ))}
-                  </div>
+                  {integration.scopes && integration.scopes.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {integration.scopes.map((scope) => (
+                        <span
+                          key={scope}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted/50 border border-border/30 text-muted-foreground"
+                        >
+                          {scope}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -260,7 +222,7 @@ function IntegrationCard({ integration }: { integration: Integration }) {
             ) : (
               <Button size="sm" className="text-xs font-medium">
                 <Zap size={12} className="mr-1.5" />
-                Connect {integration.name}
+                Connect {integration.displayName}
                 <ArrowRight size={12} className="ml-1.5" />
               </Button>
             )}
@@ -274,7 +236,29 @@ function IntegrationCard({ integration }: { integration: Integration }) {
 // ── Page Component ──
 
 export default function IntegrationsPage() {
-  const connectedCount = INTEGRATIONS.filter(
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
+
+  useEffect(() => {
+    async function fetchIntegrations() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/integrations`);
+        if (res.ok) {
+          const json = await res.json();
+          setIntegrations(json.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch integrations", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchIntegrations();
+  }, [isDemoMode]);
+
+  const connectedCount = integrations.filter(
     (i) => i.status === "connected"
   ).length;
 
@@ -290,7 +274,7 @@ export default function IntegrationsPage() {
             </h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            {connectedCount} of {INTEGRATIONS.length} integrations connected.
+            {connectedCount} of {integrations.length} integrations connected.
             Sprint Guardian uses Auth0 Token Vault for secure, delegated API access.
           </p>
         </div>
@@ -314,9 +298,15 @@ export default function IntegrationsPage() {
 
         {/* Integration Cards */}
         <div className="space-y-4 pb-8">
-          {INTEGRATIONS.map((integration) => (
-            <IntegrationCard key={integration.id} integration={integration} />
-          ))}
+          {loading ? (
+            <div className="flex justify-center items-center h-48">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            integrations.map((integration) => (
+              <IntegrationCard key={integration.provider} integration={integration} />
+            ))
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { runAgent } from "../agent/index.js";
 import { createToolRegistry } from "../tools/index.js";
+import { isDemoMode } from "../data/index.js";
 
 /**
  * POST /chat
@@ -42,7 +43,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
       );
 
       try {
-        const result = await runAgent(message, userId, registry);
+        const demo = isDemoMode();
+        const result = await runAgent(message, userId, registry, demo);
 
         request.log.info(
           {
