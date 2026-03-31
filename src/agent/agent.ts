@@ -8,6 +8,7 @@ import {
 } from "@google/generative-ai";
 import { config } from "../config.js";
 import { type ToolRegistry } from "../tools/types.js";
+import { getDataSource } from "../data/index.js";
 
 // ── Constants ──
 
@@ -136,77 +137,107 @@ export async function runAgent(
   let rounds = 0;
 
   // Initial user message
-  let result = await chat.sendMessage(message);
-  let response = result.response;
+  try {
+    let result = await chat.sendMessage(message);
+    let response = result.response;
 
-  // ── Agent loop ──
-  while (rounds < MAX_TOOL_ROUNDS) {
-    rounds++;
+    // ── Agent loop ──
+    while (rounds < MAX_TOOL_ROUNDS) {
+      rounds++;
 
-    const functionCalls = response.functionCalls();
+      const functionCalls = response.functionCalls();
 
-    // No function calls → Gemini returned a final text response
-    if (!functionCalls || functionCalls.length === 0) {
-      break;
+      // No function calls → Gemini returned a final text response
+      if (!functionCalls || functionCalls.length === 0) {
+        break;
+      }
+
+      // Execute all function calls in parallel
+      const functionResponses: Part[] = await Promise.all(
+        functionCalls.map(async (fc) => {
+          const tool = registry.get(fc.name);
+
+          let toolResult: unknown;
+          if (!tool) {
+            toolResult = { error: `Unknown tool: ${fc.name}` };
+          } else if (demoMode) {
+            // In demo mode, intercept tool calls and return static responses
+            // to prevent mutating live systems via Token Vault.
+            const ds = getDataSource(true);
+            
+            if (fc.name === "jira_analyzer") {
+              const issues = await ds.getSprintIssues(userId);
+              toolResult = {
+                status: "success",
+                note: "Simulated Jira Analysis (Demo Mode)",
+                staleTickets: issues.filter(i => i.provider === "jira" && ((i as any).daysStale || 0) > 2)
+              };
+            } else if (fc.name === "github_investigator") {
+              const prs = await ds.getGithubPRs(userId);
+              toolResult = {
+                status: "success",
+                note: "Simulated GitHub PRs (Demo Mode)",
+                openPRs: prs,
+                failingBuilds: prs.filter(pr => pr.ciStatus.includes("failing"))
+              };
+            } else {
+              toolResult = {
+                 status: "success",
+                 note: `Demo mode active. Simulated execution of ${fc.name}.`,
+                 simulated_data: true
+              };
+            }
+          } else {
+            try {
+              toolResult = await tool.execute(
+                fc.args as Record<string, unknown>,
+                userId
+              );
+            } catch (err) {
+              toolResult = {
+                error: `Tool "${fc.name}" failed: ${err instanceof Error ? err.message : String(err)}`,
+              };
+            }
+          }
+
+          allToolCalls.push({
+            tool: fc.name,
+            args: fc.args as Record<string, unknown>,
+            result: toolResult,
+          });
+
+          return {
+            functionResponse: {
+              name: fc.name,
+              response: toolResult as object,
+            },
+          };
+        })
+      );
+
+      // Send all function responses back to Gemini in one turn
+      result = await chat.sendMessage(functionResponses);
+      response = result.response;
     }
 
-    // Execute all function calls in parallel
-    const functionResponses: Part[] = await Promise.all(
-      functionCalls.map(async (fc) => {
-        const tool = registry.get(fc.name);
+    // Extract final text
+    const finalText =
+      response.text() ||
+      "I completed the analysis but couldn't generate a summary. Please check the tool results.";
 
-        let toolResult: unknown;
-        if (!tool) {
-          toolResult = { error: `Unknown tool: ${fc.name}` };
-        } else if (demoMode) {
-          // In demo mode, intercept tool calls and return static responses
-          // to prevent mutating live systems via Token Vault.
-          toolResult = {
-             status: "success",
-             note: `Demo mode active. Simulated execution of ${fc.name}.`,
-             simulated_data: true
-          };
-        } else {
-          try {
-            toolResult = await tool.execute(
-              fc.args as Record<string, unknown>,
-              userId
-            );
-          } catch (err) {
-            toolResult = {
-              error: `Tool "${fc.name}" failed: ${err instanceof Error ? err.message : String(err)}`,
-            };
-          }
-        }
-
-        allToolCalls.push({
-          tool: fc.name,
-          args: fc.args as Record<string, unknown>,
-          result: toolResult,
-        });
-
-        return {
-          functionResponse: {
-            name: fc.name,
-            response: toolResult as object,
-          },
-        };
-      })
-    );
-
-    // Send all function responses back to Gemini in one turn
-    result = await chat.sendMessage(functionResponses);
-    response = result.response;
+    return {
+      response: finalText,
+      toolCalls: allToolCalls,
+      rounds,
+    };
+  } catch (err: any) {
+    if (err.message && err.message.includes("429")) {
+      return {
+        response: "⚠️ **Google Gemini AI Rate Limit Exceeded**\n\nThe free tier of the Gemini API has a strict requests-per-minute quota which was just hit. \n\nHowever, behind the scenes, your Sprint Guardian dashboard is fully functional. Please wait a minute for the quota to reset, or provide a paid Gemini API key in your `.env` file to remove this restriction.",
+        toolCalls: allToolCalls,
+        rounds
+      };
+    }
+    throw err;
   }
-
-  // Extract final text
-  const finalText =
-    response.text() ||
-    "I completed the analysis but couldn't generate a summary. Please check the tool results.";
-
-  return {
-    response: finalText,
-    toolCalls: allToolCalls,
-    rounds,
-  };
 }

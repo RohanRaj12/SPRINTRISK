@@ -96,7 +96,21 @@ class ApiClient {
     return response.json() as Promise<T>;
   }
 
+  // ── Settings ──
+
+  async getDemoMode(): Promise<{ demoMode: boolean }> {
+    return this.request("/api/settings/demo-mode");
+  }
+
+  async setDemoMode(enabled: boolean): Promise<{ success: boolean; demoMode: boolean }> {
+    return this.request("/api/settings/demo-mode", {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
   // ── Chat ──
+
   
   async sendMessage(message: string): Promise<ChatResponse> {
     return this.request<ChatResponse>("/chat", {

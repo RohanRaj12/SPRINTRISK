@@ -19,11 +19,8 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function fetchState() {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/settings/demo-mode`);
-        if (res.ok) {
-          const data = await res.json();
-          setIsDemoModeState(data.demoMode);
-        }
+        const res = await api.getDemoMode();
+        setIsDemoModeState(res.demoMode);
       } catch (err) {
         console.error("Failed to fetch demo mode state:", err);
       } finally {
@@ -37,21 +34,15 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
     setIsDemoModeState(enabled); // Optimistic UI update
     
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/settings/demo-mode`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
-      });
-      
-      if (!res.ok) {
-        console.error("Failed to update demo mode on server");
-        setIsDemoModeState(!enabled); // Revert on failure
-      }
+      const res = await api.setDemoMode(enabled);
+      // Backend validates it
+      setIsDemoModeState(res.demoMode);
     } catch (err) {
       console.error("Failed to update demo mode:", err);
       setIsDemoModeState(!enabled); // Revert on failure
     }
   };
+
 
   return (
     <DemoModeContext.Provider value={{ isDemoMode, setDemoMode, isLoading }}>

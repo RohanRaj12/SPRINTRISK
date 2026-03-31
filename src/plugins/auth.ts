@@ -45,6 +45,12 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
       // Skip health-check
       if (request.url === "/health") return;
 
+      // Allow local development bypass for ease of testing Sprint Guardian UI
+      if (!request.headers.authorization && process.env.NODE_ENV !== "production") {
+        request.user = { sub: "auth0|local-dev-user" };
+        return;
+      }
+
       try {
         await request.jwtVerify();
       } catch (err) {

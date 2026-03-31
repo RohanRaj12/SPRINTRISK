@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Send, Bot, User, Sparkles } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { motion, AnimatePresence } from "framer-motion";
+import { api } from "@/lib/api";
 
 interface Message {
   id: string;
@@ -28,7 +28,7 @@ export function AgentPanel() {
   // Auto scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
@@ -54,25 +54,28 @@ export function AgentPanel() {
     );
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
     
     const userMsgId = Date.now().toString();
     const agentMsgId = (Date.now() + 1).toString();
+    const userMessage = input;
     
-    setMessages((prev) => [...prev, { id: userMsgId, role: "user", content: input }]);
+    setMessages((prev) => [...prev, { id: userMsgId, role: "user", content: userMessage }]);
     setInput("");
     
-    // Simulate agent processing delay
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        { id: agentMsgId, role: "agent", content: "", isStreaming: true },
-      ]);
-      
-      const responseText = "I'm analyzing the current sprint health. Let me check Jira for stale tickets and GitHub for PR bottlenecks. I will identify anything blocked or pending review...";
-      streamText(responseText, agentMsgId);
-    }, 600);
+    // Add blank streaming agent message
+    setMessages((prev) => [
+      ...prev,
+      { id: agentMsgId, role: "agent", content: "", isStreaming: true },
+    ]);
+    
+    try {
+      const response = await api.sendMessage(userMessage);
+      streamText(response.reply, agentMsgId);
+    } catch (err: any) {
+      streamText("Sorry, I encountered an error: " + err.message, agentMsgId);
+    }
   };
 
   return (
@@ -82,7 +85,7 @@ export function AgentPanel() {
         <h2 className="font-medium text-sm">Sprint Guardian AI</h2>
       </div>
 
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+      <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden min-h-0">
         <div className="space-y-6 pb-4">
           <AnimatePresence initial={false}>
             {messages.map((msg) => (
@@ -124,8 +127,9 @@ export function AgentPanel() {
               </motion.div>
             ))}
           </AnimatePresence>
+          <div ref={scrollRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       <div className="p-4 border-t border-border/50 bg-background">
         <div className="relative flex items-end overflow-hidden rounded-xl border border-input bg-card shadow-sm transition-colors focus-within:ring-1 focus-within:ring-ring">

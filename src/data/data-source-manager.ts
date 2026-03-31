@@ -19,7 +19,7 @@ const demoSource = new DemoDataSource();
 const realSource = new RealDataSource();
 
 // In-memory demo mode state (per org in production, single flag for now)
-let globalDemoMode = false;
+let globalDemoMode = true;
 
 /**
  * Get the current data source based on demo mode setting.

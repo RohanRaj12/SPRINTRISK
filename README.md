@@ -1,4 +1,4 @@
-# Sprint Guardian
+# SPRINTRISK
 
 > **An Agentic AI Sprint Operator Platform** — A multi-tenant SaaS that autonomously audits engineering sprint health, operates on behalf of users across GitHub, Jira, and Slack, and provides enterprise-grade security through Auth0 Token Vault.
 
@@ -8,7 +8,7 @@ Built during the Auth0 "Authorized to Act" Hackathon.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Sprint Guardian Platform                     │
+│                     SPRINTRISK Platform                         │
 ├──────────────────┬──────────────────────────────────────────────┤
 │   Next.js 15     │          Fastify Backend (TypeScript)        │
 │   Frontend       │  ┌────────────────────────────────────────┐  │
@@ -92,7 +92,7 @@ cp frontend/.env.example frontend/.env.local
 ### 3. Database Setup
 ```bash
 # Run the schema migration
-psql -d sprint_guardian -f src/db/schema.sql
+psql -d sprintrisk -f src/db/schema.sql
 ```
 
 ### 4. Install Dependencies
