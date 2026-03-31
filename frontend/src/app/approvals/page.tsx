@@ -22,7 +22,6 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { motion, AnimatePresence } from "framer-motion";
-import { useDemoMode } from "@/lib/demo-mode-context";
 import { EmptyState } from "@/components/ui/empty-state";
 
 // ── Types ──
@@ -356,8 +355,6 @@ export default function ApprovalsPage() {
   const [filter, setFilter] = useState<string>("pending");
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isDemoMode } = useDemoMode();
-
   useEffect(() => {
     async function fetchApprovals() {
       setLoading(true);
@@ -374,7 +371,7 @@ export default function ApprovalsPage() {
       }
     }
     fetchApprovals();
-  }, [isDemoMode]);
+  }, []);
 
   const filteredApprovals =
     filter === "all"

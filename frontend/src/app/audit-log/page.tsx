@@ -20,7 +20,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { useDemoMode } from "@/lib/demo-mode-context";
 import { EmptyState } from "@/components/ui/empty-state";
 
 // ── Types ──
@@ -164,8 +163,6 @@ export default function AuditLogPage() {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isDemoMode } = useDemoMode();
-
   useEffect(() => {
     async function fetchLogs() {
       setLoading(true);
@@ -173,7 +170,6 @@ export default function AuditLogPage() {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/audit-log`);
         if (res.ok) {
           const json = await res.json();
-          // Assuming the backend uses `timestamp` but the frontend expects `createdAt`. Map it.
           const mapped = (json.data || []).map((e: any) => ({ ...e, createdAt: e.timestamp || e.createdAt }));
           setEntries(mapped);
         }
@@ -184,7 +180,7 @@ export default function AuditLogPage() {
       }
     }
     fetchLogs();
-  }, [isDemoMode]);
+  }, []);
 
   const filteredEntries = entries.filter((e) => {
     if (categoryFilter !== "all" && e.category !== categoryFilter) return false;

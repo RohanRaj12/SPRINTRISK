@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { getManagementToken } from "./auth0-management.js";
+import { enforceRateLimit } from "../lib/rate-limiter.js";
 
 /**
  * Service name → Auth0 connection name mapping.
@@ -118,6 +119,9 @@ export async function fetchWithDelegatedToken(
   url: string,
   options: RequestInit = {}
 ): Promise<Response> {
+  // Enforce per-service rate limits before making the call
+  await enforceRateLimit(service);
+
   const { access_token } = await getDelegatedToken(userId, service);
 
   const headers = new Headers(options.headers);

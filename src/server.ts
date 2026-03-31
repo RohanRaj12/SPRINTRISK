@@ -10,7 +10,10 @@ import { agentRunRoutes } from "./routes/agent-runs.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { settingsRoutes } from "./routes/settings.js";
-import { startScheduler } from "./scheduler/index.js";
+import { eventRoutes } from "./routes/events.js";
+import { webhookRoutes } from "./routes/webhooks.js";
+import { analyticsRoutes } from "./routes/analytics.js";
+import { getConnectionManager } from "./integrations/index.js";
 
 async function main() {
   const app = Fastify({
@@ -21,10 +24,17 @@ async function main() {
         options: { colorize: true },
       },
     },
+    bodyLimit: 1_048_576, // 1 MB
   });
 
   // ── Global plugins ──
-  await app.register(cors, { origin: true });
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "http://localhost:3000")
+    .split(",")
+    .map((o: string) => o.trim());
+  await app.register(cors, {
+    origin: allowedOrigins,
+    credentials: true,
+  });
   await app.register(authPlugin);
 
   // ── Routes ──
@@ -36,6 +46,9 @@ async function main() {
   await app.register(integrationRoutes);
   await app.register(dashboardRoutes);
   await app.register(settingsRoutes);
+  await app.register(eventRoutes);
+  await app.register(webhookRoutes);
+  await app.register(analyticsRoutes);
 
   // ── Start ──
   try {
@@ -43,10 +56,24 @@ async function main() {
       port: config.server.port,
       host: config.server.host,
     });
-    app.log.info(`🛡️  Sprint Guardian listening at ${address}`);
+    app.log.info(`Sprint Guardian listening at ${address}`);
 
-    // ── Start cron scheduler after server is up ──
-    startScheduler();
+    // ── Initialize Connection Manager ──
+    const connManager = getConnectionManager();
+    app.log.info("Testing integration connections...");
+    await connManager.checkAll();
+
+    const statuses = connManager.getAllStatuses();
+    for (const s of statuses) {
+      const icon = s.status === "connected" ? "[OK]" : s.status === "error" ? "[ERR]" : "[--]";
+      app.log.info(`  ${icon} ${s.displayName}: ${s.status}${s.account ? ` (${s.account})` : ""}${s.error && s.status !== "disconnected" ? ` — ${s.error}` : ""}`);
+    }
+
+    const connected = connManager.getConnectedCount();
+    app.log.info(`${connected}/${statuses.length} integrations connected`);
+
+    // Start periodic health checks (every 60s)
+    connManager.startPolling(60_000);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

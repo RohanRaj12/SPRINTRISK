@@ -11,6 +11,7 @@
  * State machine: PENDING → APPROVED/REJECTED → EXECUTED/EXPIRED
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   Approval,
   ApprovalStatus,
@@ -29,7 +30,7 @@ const approvalListeners = new Map<
 // ── Helper: generate ID ──
 
 function generateId(): string {
-  return `apv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `apv_${randomUUID()}`;
 }
 
 // ── Approval Creation ──

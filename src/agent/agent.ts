@@ -1,19 +1,9 @@
-import {
-  GoogleGenerativeAI,
-  FunctionCallingMode,
-  SchemaType,
-  type Content,
-  type FunctionDeclaration,
-  type Part,
-} from "@google/generative-ai";
-import { config } from "../config.js";
+import { getAIClient, type AIMessage } from "../lib/ai-client.js";
 import { type ToolRegistry } from "../tools/types.js";
-import { getDataSource } from "../data/index.js";
 
 // ── Constants ──
 
-const MODEL_NAME = "gemini-2.0-flash";
-const MAX_TOOL_ROUNDS = 10; // safety valve to prevent infinite loops
+const MAX_TOOL_ROUNDS = 10;
 
 const SYSTEM_INSTRUCTION = `You are Sprint Guardian, an AI agent that audits engineering sprint health.
 
@@ -26,54 +16,17 @@ Behavior rules:
 - When asked to audit a sprint, use the tools in sequence: Jira → GitHub → Slack.
 - Always provide a clear, concise summary of findings.
 - If a tool returns errors (e.g. missing credentials), explain the issue to the user.
-- If the user has not connected integrations and you are in live mode, tell them: "No data available. Please connect your integrations."
 - Use markdown formatting in your responses.
 - Be proactive: if you find stale tickets AND failing CI on the same repo, mention the correlation.
 - For Slack notifications, suggest appropriate severity levels based on findings.
+
+IMPORTANT: You have access to tools. When you want to call a tool, include a JSON code block like this:
+\`\`\`tool_call
+{"tool": "tool_name", "args": {"param1": "value1"}}
+\`\`\`
+
+Available tools and their parameters will be provided in the conversation.
 `;
-
-/**
- * Convert our ToolRegistry into Gemini-compatible FunctionDeclarations.
- */
-function toolsToGeminiFunctions(
-  registry: ToolRegistry
-): FunctionDeclaration[] {
-  return registry.getAll().map((tool) => {
-    const properties: Record<string, unknown> = {};
-
-    for (const [key, param] of Object.entries(tool.parameters)) {
-      const prop: Record<string, unknown> = {
-        type: schemaTypeFromString(param.type),
-        description: param.description,
-      };
-      if (param.enum) prop.enum = param.enum;
-      if (param.items) prop.items = { type: schemaTypeFromString(param.items.type) };
-      properties[key] = prop;
-    }
-
-    return {
-      name: tool.name,
-      description: tool.description,
-      parameters: {
-        type: SchemaType.OBJECT,
-        properties,
-        required: tool.required,
-      },
-    } as FunctionDeclaration;
-  });
-}
-
-function schemaTypeFromString(type: string): SchemaType {
-  const map: Record<string, SchemaType> = {
-    string: SchemaType.STRING,
-    number: SchemaType.NUMBER,
-    integer: SchemaType.INTEGER,
-    boolean: SchemaType.BOOLEAN,
-    array: SchemaType.ARRAY,
-    object: SchemaType.OBJECT,
-  };
-  return map[type] ?? SchemaType.STRING;
-}
 
 /**
  * Result from running the agent.
@@ -92,150 +45,115 @@ export interface AgentResult {
 }
 
 /**
+ * Extract tool calls from agent text response.
+ */
+function extractToolCalls(text: string): Array<{ tool: string; args: Record<string, unknown> }> {
+  const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+  const regex = /```tool_call\s*\n?([\s\S]*?)```/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (parsed.tool) {
+        calls.push({ tool: parsed.tool, args: parsed.args || {} });
+      }
+    } catch {
+      // Ignore malformed tool calls
+    }
+  }
+  return calls;
+}
+
+/**
  * Run the Sprint Guardian agent loop.
  *
- * This is a custom agentic loop (no LangChain) that:
- *  1. Sends the user message + tool declarations to Gemini
- *  2. If Gemini returns function calls, executes them via ToolRegistry
- *  3. Sends the results back to Gemini as FunctionResponse parts
- *  4. Repeats until Gemini returns a text response (or MAX_TOOL_ROUNDS)
- *
- * @param message  - User's natural language prompt
- * @param userId   - Auth0 user ID (for Token Vault delegation)
- * @param registry - Tool registry containing all available tools
- * @param demoMode - Whether the agent should run in demo mode
- * @param history  - Optional conversation history for multi-turn
+ * Uses the AI client abstraction (Groq or Gemini) with a text-based
+ * tool-calling protocol. The agent outputs tool_call blocks which we
+ * parse, execute, and feed results back.
  */
 export async function runAgent(
   message: string,
   userId: string,
   registry: ToolRegistry,
-  demoMode: boolean = false,
-  history: Content[] = []
+  history: AIMessage[] = []
 ): Promise<AgentResult> {
-  const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
+  const ai = getAIClient();
 
-  const model = genAI.getGenerativeModel({
-    model: MODEL_NAME,
-    systemInstruction: SYSTEM_INSTRUCTION + (demoMode ? "\n\nCRITICAL: You are running in DEMO MODE. The tools will return static demo data. Acknowledge that you are running a simulated audit." : "\n\nCRITICAL: You are running in LIVE MODE against real production APIs."),
-    tools: [
-      {
-        functionDeclarations: toolsToGeminiFunctions(registry),
-      },
-    ],
-    toolConfig: {
-      functionCallingConfig: {
-        mode: FunctionCallingMode.AUTO,
-      },
-    },
-  });
+  // Build tool descriptions for the system prompt
+  const toolDescriptions = registry.getAll().map((tool) => {
+    const params = Object.entries(tool.parameters)
+      .map(([k, v]) => `  - ${k} (${v.type}${tool.required.includes(k) ? ", required" : ""}): ${v.description}`)
+      .join("\n");
+    return `### ${tool.name}\n${tool.description}\nParameters:\n${params}`;
+  }).join("\n\n");
 
-  // Start a chat session with history
-  const chat = model.startChat({ history });
+  const systemPrompt = SYSTEM_INSTRUCTION + "\n\n## Available Tools\n\n" + toolDescriptions;
+
+  const messages: AIMessage[] = [
+    { role: "system", content: systemPrompt },
+    ...history,
+    { role: "user", content: message },
+  ];
 
   const allToolCalls: AgentResult["toolCalls"] = [];
   let rounds = 0;
 
-  // Initial user message
   try {
-    let result = await chat.sendMessage(message);
-    let response = result.response;
-
-    // ── Agent loop ──
     while (rounds < MAX_TOOL_ROUNDS) {
       rounds++;
 
-      const functionCalls = response.functionCalls();
+      const response = await ai.chat(messages, { temperature: 0.3, maxTokens: 4096 });
+      const text = response.content;
 
-      // No function calls → Gemini returned a final text response
-      if (!functionCalls || functionCalls.length === 0) {
-        break;
+      // Check for tool calls in the response
+      const toolCalls = extractToolCalls(text);
+
+      if (toolCalls.length === 0) {
+        // No tool calls — this is the final response
+        return { response: text, toolCalls: allToolCalls, rounds };
       }
 
-      // Execute all function calls in parallel
-      const functionResponses: Part[] = await Promise.all(
-        functionCalls.map(async (fc) => {
-          const tool = registry.get(fc.name);
+      // Add assistant response to history
+      messages.push({ role: "assistant", content: text });
 
-          let toolResult: unknown;
-          if (!tool) {
-            toolResult = { error: `Unknown tool: ${fc.name}` };
-          } else if (demoMode) {
-            // In demo mode, intercept tool calls and return static responses
-            // to prevent mutating live systems via Token Vault.
-            const ds = getDataSource(true);
-            
-            if (fc.name === "jira_analyzer") {
-              const issues = await ds.getSprintIssues(userId);
-              toolResult = {
-                status: "success",
-                note: "Simulated Jira Analysis (Demo Mode)",
-                staleTickets: issues.filter(i => i.provider === "jira" && ((i as any).daysStale || 0) > 2)
-              };
-            } else if (fc.name === "github_investigator") {
-              const prs = await ds.getGithubPRs(userId);
-              toolResult = {
-                status: "success",
-                note: "Simulated GitHub PRs (Demo Mode)",
-                openPRs: prs,
-                failingBuilds: prs.filter(pr => pr.ciStatus.includes("failing"))
-              };
-            } else {
-              toolResult = {
-                 status: "success",
-                 note: `Demo mode active. Simulated execution of ${fc.name}.`,
-                 simulated_data: true
-              };
-            }
-          } else {
-            try {
-              toolResult = await tool.execute(
-                fc.args as Record<string, unknown>,
-                userId
-              );
-            } catch (err) {
-              toolResult = {
-                error: `Tool "${fc.name}" failed: ${err instanceof Error ? err.message : String(err)}`,
-              };
-            }
+      // Execute tool calls and collect results
+      const results: string[] = [];
+      for (const tc of toolCalls) {
+        const tool = registry.get(tc.tool);
+        let toolResult: unknown;
+
+        if (!tool) {
+          toolResult = { error: `Unknown tool: ${tc.tool}` };
+        } else {
+          try {
+            toolResult = await tool.execute(tc.args, userId);
+          } catch (err) {
+            toolResult = {
+              error: `Tool "${tc.tool}" failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
           }
+        }
 
-          allToolCalls.push({
-            tool: fc.name,
-            args: fc.args as Record<string, unknown>,
-            result: toolResult,
-          });
+        allToolCalls.push({ tool: tc.tool, args: tc.args, result: toolResult });
+        results.push(`## Result from ${tc.tool}:\n\`\`\`json\n${JSON.stringify(toolResult, null, 2)}\n\`\`\``);
+      }
 
-          return {
-            functionResponse: {
-              name: fc.name,
-              response: toolResult as object,
-            },
-          };
-        })
-      );
-
-      // Send all function responses back to Gemini in one turn
-      result = await chat.sendMessage(functionResponses);
-      response = result.response;
+      // Feed results back as user message
+      messages.push({ role: "user", content: results.join("\n\n") });
     }
 
-    // Extract final text
-    const finalText =
-      response.text() ||
-      "I completed the analysis but couldn't generate a summary. Please check the tool results.";
-
+    // Max rounds exceeded
     return {
-      response: finalText,
+      response: "I reached the maximum number of tool iterations. Here's what I found so far based on the tool results above.",
       toolCalls: allToolCalls,
       rounds,
     };
   } catch (err: any) {
-    if (err.message && err.message.includes("429")) {
+    if (err.message?.includes("429") || err.message?.includes("rate")) {
       return {
-        response: "⚠️ **Google Gemini AI Rate Limit Exceeded**\n\nThe free tier of the Gemini API has a strict requests-per-minute quota which was just hit. \n\nHowever, behind the scenes, your Sprint Guardian dashboard is fully functional. Please wait a minute for the quota to reset, or provide a paid Gemini API key in your `.env` file to remove this restriction.",
+        response: "⚠️ **AI Rate Limit Exceeded**\n\nPlease wait a moment and try again. If this persists, check your API key quota.",
         toolCalls: allToolCalls,
-        rounds
+        rounds,
       };
     }
     throw err;

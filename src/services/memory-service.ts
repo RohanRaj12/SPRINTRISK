@@ -16,6 +16,7 @@
  * - Correlation patterns (e.g., "CI fail + stale ticket = blocked")
  */
 
+import { randomUUID } from "node:crypto";
 import type { MemoryEntry, MemoryType } from "../agent/types.js";
 
 // ── In-memory store (replace with PostgreSQL in production) ──
@@ -25,7 +26,7 @@ const memoryStore = new Map<string, MemoryEntry>();
 // ── Helper ──
 
 function generateId(): string {
-  return `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `mem_${randomUUID()}`;
 }
 
 // ── Memory Creation ──

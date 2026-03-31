@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { runAgent } from "../agent/index.js";
 import { createToolRegistry } from "../tools/index.js";
-import { isDemoMode } from "../data/index.js";
 
 /**
  * POST /chat
@@ -27,7 +26,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
           type: "object",
           required: ["message"],
           properties: {
-            message: { type: "string", minLength: 1 },
+            message: { type: "string", minLength: 1, maxLength: 10000 },
           },
         },
       },
@@ -43,8 +42,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
       );
 
       try {
-        const demo = isDemoMode();
-        const result = await runAgent(message, userId, registry, demo);
+        const result = await runAgent(message, userId, registry);
 
         request.log.info(
           {
@@ -70,8 +68,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
         request.log.error(err, "Agent execution failed");
         reply.status(500).send({
           error: "Agent execution failed",
-          message:
-            err instanceof Error ? err.message : "Unknown error occurred",
+          message: "An internal error occurred. Please try again later.",
         });
       }
     }

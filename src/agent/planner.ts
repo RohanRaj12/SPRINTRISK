@@ -9,12 +9,7 @@
  * - Expected outcomes
  */
 
-import {
-  GoogleGenerativeAI,
-  SchemaType,
-  type Content,
-} from "@google/generative-ai";
-import { config } from "../config.js";
+import { getAIClient, type AIMessage } from "../lib/ai-client.js";
 import type {
   ObservationData,
   Diagnosis,
@@ -23,8 +18,6 @@ import type {
   LLMPlanResponse,
   MemoryEntry,
 } from "./types.js";
-
-const MODEL_NAME = "gemini-2.0-flash";
 
 const PLANNING_PROMPT = `You are Sprint Guardian's planning engine. 
 Given observation data from Jira, GitHub, and Slack, you must:
@@ -56,94 +49,9 @@ Respond with a JSON object matching this schema exactly.`;
  */
 export async function generatePlan(
   observations: ObservationData,
-  memories: MemoryEntry[] = [],
-  conversationHistory: Content[] = []
+  memories: MemoryEntry[] = []
 ): Promise<{ diagnosis: Diagnosis; plan: AgentPlan }> {
-  const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
-
-  const model = genAI.getGenerativeModel({
-    model: MODEL_NAME,
-    systemInstruction: PLANNING_PROMPT,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: SchemaType.OBJECT,
-        properties: {
-          diagnosis: {
-            type: SchemaType.OBJECT,
-            properties: {
-              root_cause: { type: SchemaType.STRING },
-              severity: { type: SchemaType.STRING },
-              affected_areas: {
-                type: SchemaType.ARRAY,
-                items: { type: SchemaType.STRING },
-              },
-              correlations: {
-                type: SchemaType.ARRAY,
-                items: {
-                  type: SchemaType.OBJECT,
-                  properties: {
-                    description: { type: SchemaType.STRING },
-                    entities: {
-                      type: SchemaType.ARRAY,
-                      items: { type: SchemaType.STRING },
-                    },
-                  },
-                  required: ["description", "entities"],
-                },
-              },
-            },
-            required: [
-              "root_cause",
-              "severity",
-              "affected_areas",
-              "correlations",
-            ],
-          },
-          plan: {
-            type: SchemaType.OBJECT,
-            properties: {
-              summary: { type: SchemaType.STRING },
-              confidence: { type: SchemaType.NUMBER },
-              steps: {
-                type: SchemaType.ARRAY,
-                items: {
-                  type: SchemaType.OBJECT,
-                  properties: {
-                    action_type: { type: SchemaType.STRING },
-                    description: { type: SchemaType.STRING },
-                    params: {
-                      type: SchemaType.OBJECT,
-                      properties: {
-                        _placeholder: { type: SchemaType.STRING },
-                      },
-                    },
-                    reasoning: { type: SchemaType.STRING },
-                    expected_outcome: { type: SchemaType.STRING },
-                    risk_level: { type: SchemaType.STRING },
-                    depends_on: {
-                      type: SchemaType.ARRAY,
-                      items: { type: SchemaType.INTEGER },
-                    },
-                  },
-                  required: [
-                    "action_type",
-                    "description",
-                    "reasoning",
-                    "expected_outcome",
-                    "risk_level",
-                    "depends_on",
-                  ],
-                },
-              },
-            },
-            required: ["summary", "confidence", "steps"],
-          },
-        },
-        required: ["diagnosis", "plan"],
-      } as any,
-    },
-  });
+  const ai = getAIClient();
 
   // Build the context message
   const contextParts: string[] = [
@@ -163,12 +71,12 @@ export async function generatePlan(
     );
   }
 
-  const chat = model.startChat({ history: conversationHistory });
-  const result = await chat.sendMessage(contextParts.join("\n"));
-  const responseText = result.response.text();
+  const messages: AIMessage[] = [
+    { role: "system", content: PLANNING_PROMPT + "\n\nYou MUST respond with a valid JSON object containing \"diagnosis\" and \"plan\" keys. No markdown, no code fences, just raw JSON." },
+    { role: "user", content: contextParts.join("\n") },
+  ];
 
-  // Parse structured JSON response
-  const parsed: LLMPlanResponse = JSON.parse(responseText);
+  const parsed = await ai.chatJSON<LLMPlanResponse>(messages, { temperature: 0.2, maxTokens: 4096 });
 
   // Transform to internal types
   const diagnosis: Diagnosis = {

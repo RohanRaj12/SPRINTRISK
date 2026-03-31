@@ -1,58 +1,98 @@
 /**
  * Sprint Guardian — Integration Routes
  *
- * Endpoints for managing and checking integration status.
+ * Real-time integration status using the ConnectionManager.
  *
  * Endpoints:
- * - GET /api/integrations/status — Check connection status for all services
+ * - GET /api/integrations/status       — Auth'd: check via Token Vault (legacy)
+ * - GET /api/integrations/live-status   — Public: real-time connection status
+ * - GET /api/integrations/connect-instructions — Public: how to connect each service
+ * - POST /api/integrations/refresh      — Auth'd: force re-check all connections
  */
 
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { getDelegatedToken } from "../services/token-vault.js";
-
-interface IntegrationStatus {
-  provider: string;
-  displayName: string;
-  status: "connected" | "disconnected" | "error";
-  lastChecked: string;
-  error?: string;
-}
+import { getConnectionManager } from "../integrations/index.js";
 
 export async function integrationRoutes(fastify: FastifyInstance) {
-  // ── GET /api/integrations/status ──
+  // ── GET /api/integrations/live-status (PUBLIC — no auth required) ──
+  fastify.get("/api/integrations/live-status", async () => {
+    const manager = getConnectionManager();
+    const statuses = manager.getAllStatuses();
+
+    return {
+      integrations: statuses.map((s) => ({
+        provider: s.provider,
+        displayName: s.displayName,
+        description: s.description,
+        status: s.status,
+        account: s.account,
+        avatarUrl: s.avatarUrl,
+        scopes: s.scopes,
+        lastChecked: s.lastChecked,
+        lastConnected: s.lastConnected,
+        error: s.error,
+        metadata: s.metadata,
+      })),
+      connectedCount: manager.getConnectedCount(),
+      totalCount: statuses.length,
+      timestamp: new Date().toISOString(),
+    };
+  });
+
+  // ── GET /api/integrations/connect-instructions (PUBLIC) ──
+  fastify.get("/api/integrations/connect-instructions", async () => {
+    const manager = getConnectionManager();
+    const statuses = manager.getAllStatuses();
+
+    return {
+      integrations: statuses.map((s) => ({
+        provider: s.provider,
+        displayName: s.displayName,
+        status: s.status,
+        connectInstructions: s.connectInstructions,
+      })),
+    };
+  });
+
+  // ── POST /api/integrations/refresh (AUTH'd) ──
+  fastify.post("/api/integrations/refresh", async (request: FastifyRequest) => {
+    const manager = getConnectionManager();
+    await manager.checkAll();
+    const statuses = manager.getAllStatuses();
+
+    return {
+      integrations: statuses.map((s) => ({
+        provider: s.provider,
+        displayName: s.displayName,
+        status: s.status,
+        account: s.account,
+        avatarUrl: s.avatarUrl,
+        scopes: s.scopes,
+        lastChecked: s.lastChecked,
+        error: s.error,
+        metadata: s.metadata,
+      })),
+      connectedCount: manager.getConnectedCount(),
+      refreshedAt: new Date().toISOString(),
+    };
+  });
+
+  // ── Legacy: GET /api/integrations/status (AUTH'd — Token Vault path) ──
   fastify.get("/api/integrations/status", async (request: FastifyRequest) => {
-    const user = request.user as Record<string, unknown>;
-    const userId = user.sub as string;
+    // For backward compatibility, redirect to live status
+    const manager = getConnectionManager();
+    const statuses = manager.getAllStatuses();
 
-    const providers = [
-      { name: "jira" as const, displayName: "Jira (Atlassian)" },
-      { name: "github" as const, displayName: "GitHub" },
-      { name: "slack" as const, displayName: "Slack" },
-    ];
-
-    const statuses: IntegrationStatus[] = await Promise.all(
-      providers.map(async (provider) => {
-        try {
-          await getDelegatedToken(userId, provider.name);
-          return {
-            provider: provider.name,
-            displayName: provider.displayName,
-            status: "connected" as const,
-            lastChecked: new Date().toISOString(),
-          };
-        } catch (err) {
-          return {
-            provider: provider.name,
-            displayName: provider.displayName,
-            status: "disconnected" as const,
-            lastChecked: new Date().toISOString(),
-            error:
-              err instanceof Error ? err.message : "Unknown error",
-          };
-        }
-      })
-    );
-
-    return { integrations: statuses };
+    return {
+      integrations: statuses
+        .filter((s) => s.provider !== "auth0")
+        .map((s) => ({
+          provider: s.provider,
+          displayName: s.displayName,
+          status: s.status,
+          lastChecked: s.lastChecked,
+          error: s.error,
+        })),
+    };
   });
 }

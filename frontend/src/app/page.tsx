@@ -1,5 +1,5 @@
-import { IssueFeed } from "@/components/features/issue-feed";
+import { Dashboard } from "@/components/features/dashboard";
 
 export default function Home() {
-  return <IssueFeed />;
+  return <Dashboard />;
 }

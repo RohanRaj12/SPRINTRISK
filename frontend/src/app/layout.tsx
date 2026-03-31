@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google"; // Switch to Inter for a cleaner look
+import { Inter, Geist_Mono } from "next/font/google";
 import { Sidebar } from "@/components/layout/sidebar";
-import { AgentPanel } from "@/components/layout/agent-panel";
-import { DemoModeProvider } from "@/lib/demo-mode-context";
+import { FloatingChat } from "@/components/layout/floating-chat";
+import { ToastOverlay } from "@/components/layout/toast-overlay";
+import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
 const inter = Inter({
@@ -17,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Sprint Guardian",
-  description: "AI-first sprint health and issue tracking",
+  description: "AI-powered sprint risk intelligence",
 };
 
 export default function RootLayout({
@@ -30,15 +31,16 @@ export default function RootLayout({
       <body
         className={`${inter.variable} font-sans antialiased text-foreground bg-background selection:bg-primary/20`}
       >
-        <DemoModeProvider>
+        <AuthProvider>
           <div className="flex h-screen w-full overflow-hidden">
             <Sidebar />
-            <main className="flex-1 relative flex flex-col bg-background/50">
+            <main className="flex-1 relative flex flex-col bg-background/50 overflow-hidden">
               {children}
             </main>
-            <AgentPanel />
+            <FloatingChat />
+            <ToastOverlay />
           </div>
-        </DemoModeProvider>
+        </AuthProvider>
       </body>
     </html>
   );
