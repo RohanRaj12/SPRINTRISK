@@ -174,13 +174,24 @@ class ApiClient {
 
   // ── Audit Trigger ──
   
-  async triggerAudit(): Promise<{
+  async triggerAudit(params?: {
+    jiraSite?: string;
+    jiraProjectKey?: string;
+    githubOwner?: string;
+    githubRepo?: string;
+    slackChannel?: string;
+  }): Promise<{
     status: string;
-    message: string;
+    runId: string;
+    summary: string;
+    phases: Record<string, unknown>;
     triggeredBy: string;
     timestamp: string;
   }> {
-    return this.request("/audit/trigger", { method: "POST" });
+    return this.request("/audit/trigger", {
+      method: "POST",
+      body: JSON.stringify(params ?? {}),
+    });
   }
 }
 

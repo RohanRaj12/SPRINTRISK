@@ -12,6 +12,7 @@
  * - Org-scoped isolation
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   AuditLogEntry,
   AuditCategory,
@@ -25,7 +26,7 @@ const auditStore: AuditLogEntry[] = [];
 // ── Helper ──
 
 function generateId(): string {
-  return `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `aud_${randomUUID()}`;
 }
 
 // ── Log Entry Creation ──

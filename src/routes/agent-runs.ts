@@ -15,28 +15,14 @@ import {
   queryAuditLogs,
   getAuditSummary,
 } from "../services/audit-logger.js";
+import {
+  getRunsByOrg,
+  getRunById,
+} from "../agent/index.js";
 import type {
   AuditCategory,
   AuditSeverity,
 } from "../agent/types.js";
-
-// ── In-memory agent run store (demonstration) ──
-// In production, these would be PostgreSQL queries
-
-const agentRunStore: Array<{
-  id: string;
-  orgId: string;
-  triggeredBy: string;
-  status: string;
-  triggerType: string;
-  inputPrompt: string;
-  finalResponse?: string;
-  totalSteps: number;
-  completedSteps: number;
-  startedAt?: string;
-  completedAt?: string;
-  createdAt: string;
-}> = [];
 
 export async function agentRunRoutes(fastify: FastifyInstance) {
   // ── GET /api/agent-runs ──
@@ -64,19 +50,15 @@ export async function agentRunRoutes(fastify: FastifyInstance) {
 
       const { status, limit = 20, offset = 0 } = request.query;
 
-      let runs = agentRunStore.filter((r) => r.orgId === orgId);
+      let runs = getRunsByOrg(orgId, 100);
       if (status) {
         runs = runs.filter((r) => r.status === status);
       }
 
-      runs.sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-
+      const total = runs.length;
       return {
         runs: runs.slice(offset, offset + limit),
-        total: runs.length,
+        total,
       };
     }
   );
@@ -89,7 +71,7 @@ export async function agentRunRoutes(fastify: FastifyInstance) {
       reply: FastifyReply
     ) => {
       const { id } = request.params;
-      const run = agentRunStore.find((r) => r.id === id);
+      const run = getRunById(id);
 
       if (!run) {
         reply.status(404).send({
@@ -156,7 +138,7 @@ export async function agentRunRoutes(fastify: FastifyInstance) {
   );
 
   // ── GET /api/audit-logs/summary ──
-  fastify.get("/api/audit-logs/summary", async (request) => {
+  fastify.get("/api/audit-logs/summary", async (request: FastifyRequest) => {
     const user = request.user as Record<string, unknown>;
     const orgId = (user.org_id as string) ?? "default-org";
 

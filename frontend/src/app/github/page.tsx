@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
-import { useDemoMode } from "@/lib/demo-mode-context";
 import { EmptyState } from "@/components/ui/empty-state";
 
 export default function GitHubPage() {
@@ -14,8 +13,6 @@ export default function GitHubPage() {
   const [filter, setFilter] = useState<string>("all");
   const [prs, setPrs] = useState<IssueProps[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isDemoMode } = useDemoMode();
-
   useEffect(() => {
     async function fetchPRs() {
       setLoading(true);
@@ -32,7 +29,7 @@ export default function GitHubPage() {
       }
     }
     fetchPRs();
-  }, [isDemoMode]);
+  }, []);
 
   const filteredPRs = filter === "all"
     ? prs

@@ -10,7 +10,26 @@ import { config } from "../config.js";
  * - Fetches the JWKS from Auth0 to verify RS256 tokens
  * - Validates issuer and audience claims
  * - Decorates every request with `request.user`
+ * - Skips auth for: /health, /api/webhooks/*, /api/integrations/live-status
  */
+
+/** Paths that skip JWT verification */
+const PUBLIC_PATHS = [
+  "/health",
+  "/api/webhooks/jira",
+  "/api/webhooks/github",
+  "/api/webhooks/slack",
+  "/api/integrations/live-status",
+  "/api/integrations/connect-instructions",
+  "/api/agents/actions",
+  "/api/agents/health-check",
+];
+
+function isPublicPath(url: string): boolean {
+  const path = url.split("?")[0];
+  return PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
+}
+
 export default fp(async function authPlugin(fastify: FastifyInstance) {
   const client = jwksClient({
     jwksUri: `https://${config.auth0.domain}/.well-known/jwks.json`,
@@ -37,19 +56,11 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
     },
   });
 
-  // @fastify/jwt automatically decorates request with `user` after jwtVerify()
-  // Pre-handler hook: verify JWT on every request that opts in
   fastify.addHook(
     "onRequest",
     async (request: FastifyRequest, reply: FastifyReply) => {
-      // Skip health-check
-      if (request.url === "/health") return;
-
-      // Allow local development bypass for ease of testing Sprint Guardian UI
-      if (!request.headers.authorization && process.env.NODE_ENV !== "production") {
-        request.user = { sub: "auth0|local-dev-user" };
-        return;
-      }
+      // Skip auth for public/webhook endpoints
+      if (isPublicPath(request.url)) return;
 
       try {
         await request.jwtVerify();

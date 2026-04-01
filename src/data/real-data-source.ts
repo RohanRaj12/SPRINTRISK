@@ -116,52 +116,23 @@ export class RealDataSource implements DataSource {
   }
 
   async getIntegrationStatus(userId: string): Promise<IntegrationStatus[]> {
-    const integrations: IntegrationStatus[] = [
-      {
-        provider: "jira",
-        displayName: "Jira (Atlassian)",
-        description: "Query sprint tickets, identify stale issues, and track assignment patterns.",
-        status: "disconnected",
-      },
-      {
-        provider: "github",
-        displayName: "GitHub",
-        description: "Monitor pull requests, CI/CD pipeline status, and review bottlenecks.",
-        status: "disconnected",
-      },
-      {
-        provider: "slack",
-        displayName: "Slack",
-        description: "Send sprint health notifications and DM developers about stale work.",
-        status: "disconnected",
-      },
-    ];
+    // Use the ConnectionManager for real-time status
+    const { getConnectionManager } = await import("../integrations/connection-manager.js");
+    const manager = getConnectionManager();
+    const statuses = manager.getAllStatuses();
 
-    // Check each integration by attempting a Token Vault fetch
-    for (const integration of integrations) {
-      try {
-        const testUrls: Record<string, string> = {
-          jira: "https://api.atlassian.com/me",
-          github: "https://api.github.com/user",
-          slack: "https://slack.com/api/auth.test",
-        };
-        const url = testUrls[integration.provider];
-        if (!url) continue;
-
-        const response = await fetchWithDelegatedToken(userId, integration.provider, url);
-        if (response.ok) {
-          integration.status = "connected";
-          integration.lastSync = new Date().toISOString();
-        } else {
-          integration.status = "error";
-          integration.error = `API returned ${response.status}`;
-        }
-      } catch {
-        // Stays disconnected
-      }
-    }
-
-    return integrations;
+    return statuses
+      .filter((s) => s.provider !== "auth0")
+      .map((s) => ({
+        provider: s.provider as "jira" | "github" | "slack",
+        displayName: s.displayName,
+        description: s.description,
+        status: s.status === "checking" ? "disconnected" as const : s.status as "connected" | "disconnected" | "error",
+        account: s.account,
+        lastSync: s.lastChecked,
+        scopes: s.scopes,
+        error: s.error,
+      }));
   }
 
   // ── Private helpers ──

@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
-import { useDemoMode } from "@/lib/demo-mode-context";
 import { EmptyState } from "@/components/ui/empty-state";
 
 export default function JiraPage() {
@@ -14,8 +13,6 @@ export default function JiraPage() {
   const [filter, setFilter] = useState<string>("all");
   const [issues, setIssues] = useState<IssueProps[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isDemoMode } = useDemoMode();
-
   useEffect(() => {
     async function fetchIssues() {
       setLoading(true);
@@ -23,7 +20,6 @@ export default function JiraPage() {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/issues`);
         if (res.ok) {
           const json = await res.json();
-          // Filter only jira issues
           const jiraOnly = (json.data || []).filter((i: IssueProps) => i.provider === "jira");
           setIssues(jiraOnly);
         }
@@ -34,7 +30,7 @@ export default function JiraPage() {
       }
     }
     fetchIssues();
-  }, [isDemoMode]);
+  }, []);
 
   const filteredIssues = filter === "all"
     ? issues

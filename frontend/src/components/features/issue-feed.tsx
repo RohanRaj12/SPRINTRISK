@@ -5,7 +5,6 @@ import { AlertCircle, CheckCircle2, Clock, GitPullRequest, ArrowUpRight, FolderS
 import { Badge } from "@/components/ui/badge";
 import { IssueDetailModal } from "./issue-detail";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useDemoMode } from "@/lib/demo-mode-context";
 
 export interface IssueProps {
   id: string;
@@ -99,8 +98,6 @@ export function IssueFeed() {
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
   const [issues, setIssues] = useState<IssueProps[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isDemoMode } = useDemoMode();
-
   useEffect(() => {
     async function fetchIssues() {
       setLoading(true);
@@ -117,7 +114,7 @@ export function IssueFeed() {
       }
     }
     fetchIssues();
-  }, [isDemoMode]); // Refetch when demo mode changes
+  }, []);
 
   if (loading) {
     return (

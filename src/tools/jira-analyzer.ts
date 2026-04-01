@@ -109,10 +109,17 @@ export const jiraAnalyzer: ToolDefinition = {
     const staleDays = (args.stale_days as number) ?? 3;
     const sprintName = args.sprint_name as string | undefined;
 
+    // Validate inputs to prevent JQL injection
+    if (!/^[A-Z0-9_-]{1,20}$/i.test(projectKey)) {
+      throw new Error(`Invalid project key: "${projectKey}". Must be alphanumeric.`);
+    }
+
+    const escapeJql = (v: string) => v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
     // Build JQL query
-    let jql = `project = "${projectKey}" AND statusCategory != Done`;
+    let jql = `project = "${escapeJql(projectKey)}" AND statusCategory != Done`;
     if (sprintName) {
-      jql += ` AND sprint = "${sprintName}"`;
+      jql += ` AND sprint = "${escapeJql(sprintName)}"`;
     }
     jql += ` ORDER BY updated ASC`;
 
