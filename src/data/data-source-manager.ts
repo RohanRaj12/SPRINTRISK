@@ -8,7 +8,7 @@
 import type { DataSource } from "./data-source.js";
 import { RealDataSource } from "./real-data-source.js";
 
-const realSource = new RealDataSource();
+export const realSource = new RealDataSource();
 
 /**
  * Get the live data source.

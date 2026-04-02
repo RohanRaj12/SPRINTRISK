@@ -1,1 +1,1 @@
-export { startScheduler, executeAudit } from "./scheduler.js";
+export { startScheduler, executeAudit, executeDependencyGraph } from "./scheduler.js";

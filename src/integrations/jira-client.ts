@@ -172,7 +172,7 @@ class JiraClient {
     maxResults = 50
   ): Promise<{ issues: JiraIssue[]; total: number }> {
     return this.request<{ issues: JiraIssue[]; total: number }>(
-      `/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=${maxResults}`
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=${maxResults}`
     );
   }
 

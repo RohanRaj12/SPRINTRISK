@@ -4,7 +4,7 @@
  * Sprint Guardian — Auth0 Authentication Context
  *
  * Lightweight Auth0 SPA integration using the redirect flow.
- * Provides login/logout and injects the access token into the API client.
+ * Provides login/logout/linkAccount and injects the access token into the API client.
  *
  * Required env vars (in frontend/.env.local):
  *   NEXT_PUBLIC_AUTH0_DOMAIN=your-tenant.us.auth0.com
@@ -40,6 +40,8 @@ interface AuthContextType {
   accessToken: string | null;
   login: () => void;
   logout: () => void;
+  /** Link an external identity (GitHub, Jira, Slack) via Auth0 OAuth */
+  linkAccount: (connection: string) => void;
   error: string | null;
 }
 
@@ -94,18 +96,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!code || !storedVerifier) return false;
 
-    const config = getAuth0Config();
+    const authConfig = getAuth0Config();
+    const linkingConnection = sessionStorage.getItem("linking_connection");
 
     try {
-      const response = await fetch(`https://${config.domain}/oauth/token`, {
+      // Determine the correct redirect_uri based on whether this was a link or login
+      const redirectUri = linkingConnection
+        ? `${window.location.origin}/integrations`
+        : authConfig.redirectUri;
+
+      const response = await fetch(`https://${authConfig.domain}/oauth/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           grant_type: "authorization_code",
-          client_id: config.clientId,
+          client_id: authConfig.clientId,
           code_verifier: storedVerifier,
           code,
-          redirect_uri: config.redirectUri,
+          redirect_uri: redirectUri,
         }),
       });
 
@@ -115,11 +123,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await response.json();
-
       sessionStorage.removeItem("pkce_verifier");
-      sessionStorage.setItem("access_token", data.access_token);
-      if (data.id_token) {
-        sessionStorage.setItem("id_token", data.id_token);
+
+      if (linkingConnection) {
+        // ── LINK FLOW: Don't replace the primary session ──
+        // Use the provider ID (e.g. "slack") not the connection name (e.g. "sign-in-with-slack")
+        const providerId = sessionStorage.getItem("linking_provider_id") || linkingConnection;
+
+        // Mark this service as connected in localStorage
+        const connected = JSON.parse(localStorage.getItem("sg_connected_services") || "{}");
+        connected[providerId] = { linked: true, linkedAt: new Date().toISOString() };
+        localStorage.setItem("sg_connected_services", JSON.stringify(connected));
+
+        // Restore the original GitHub session
+        const preToken = sessionStorage.getItem("pre_link_access_token");
+        const preIdToken = sessionStorage.getItem("pre_link_id_token");
+        if (preToken) sessionStorage.setItem("access_token", preToken);
+        if (preIdToken) sessionStorage.setItem("id_token", preIdToken);
+
+        // Clean up link-specific storage
+        sessionStorage.removeItem("linking_connection");
+        sessionStorage.removeItem("linking_provider_id");
+        sessionStorage.removeItem("pre_link_access_token");
+        sessionStorage.removeItem("pre_link_id_token");
+
+        console.info(`[Auth] Successfully linked ${providerId}. Primary session preserved.`);
+      } else {
+        // ── PRIMARY LOGIN FLOW: Store tokens normally ──
+        sessionStorage.setItem("access_token", data.access_token);
+        if (data.id_token) {
+          sessionStorage.setItem("id_token", data.id_token);
+        }
       }
 
       // Clean URL
@@ -130,15 +164,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Auth callback failed:", err);
       setError(err instanceof Error ? err.message : "Authentication failed");
       sessionStorage.removeItem("pkce_verifier");
+      sessionStorage.removeItem("linking_connection");
+      sessionStorage.removeItem("linking_provider_id");
+      sessionStorage.removeItem("pre_link_access_token");
+      sessionStorage.removeItem("pre_link_id_token");
       return false;
     }
   }, []);
 
   // Fetch user info from the access token
   const fetchUserInfo = useCallback(async (token: string) => {
-    const config = getAuth0Config();
+    const authConfig = getAuth0Config();
     try {
-      const response = await fetch(`https://${config.domain}/userinfo`, {
+      const response = await fetch(`https://${authConfig.domain}/userinfo`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -161,21 +199,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function init() {
       try {
-        // Try handling OAuth callback first
-        const callbackHandled = await handleCallback();
+        await handleCallback();
 
-        // Check for existing token
         const storedToken = sessionStorage.getItem("access_token");
 
         if (storedToken) {
+          // Use id_token for API requests instead of access_token to bypass custom API strictness
+          const idToken = sessionStorage.getItem("id_token");
+          
           const userInfo = await fetchUserInfo(storedToken);
           if (userInfo) {
             setUser(userInfo);
-            setAccessToken(storedToken);
+            setAccessToken(storedToken); // Opaque token kept for Auth0 /userinfo
             setIsAuthenticated(true);
-            api.setAccessToken(storedToken);
+            api.setAccessToken(idToken || storedToken); // Send JWT to our backend
           } else {
-            // Token expired or invalid
             sessionStorage.removeItem("access_token");
             sessionStorage.removeItem("id_token");
           }
@@ -191,10 +229,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [handleCallback, fetchUserInfo]);
 
   // Login via Auth0 authorize redirect (PKCE)
+  // Defaults to GitHub as the identity provider — no generic login page needed
   const login = useCallback(async () => {
-    const config = getAuth0Config();
+    const authConfig = getAuth0Config();
 
-    if (!config.domain || !config.clientId) {
+    if (!authConfig.domain || !authConfig.clientId) {
       setError("Auth0 is not configured. Set NEXT_PUBLIC_AUTH0_DOMAIN and NEXT_PUBLIC_AUTH0_CLIENT_ID.");
       return;
     }
@@ -206,20 +245,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const params = new URLSearchParams({
       response_type: "code",
-      client_id: config.clientId,
-      redirect_uri: config.redirectUri,
+      client_id: authConfig.clientId,
+      redirect_uri: authConfig.redirectUri,
       scope: "openid profile email",
-      audience: config.audience,
+      connection: "github",
       code_challenge: challenge,
       code_challenge_method: "S256",
     });
 
-    window.location.href = `https://${config.domain}/authorize?${params}`;
+    window.location.href = `https://${authConfig.domain}/authorize?${params}`;
+  }, []);
+
+  /**
+   * Link an external identity (GitHub, Jira/Atlassian, Slack) via Auth0 OAuth.
+   *
+   * Uses Option A: "silent re-authorize" — redirect to Auth0 with a specific
+   * connection parameter. Auth0 links the new IdP token to the existing user
+   * and stores it in Token Vault.
+   */
+  const linkAccount = useCallback(async (connection: string) => {
+    const authConfig = getAuth0Config();
+
+    if (!authConfig.domain || !authConfig.clientId) {
+      setError("Auth0 is not configured.");
+      return;
+    }
+
+    // ── Save the current primary session before redirecting ──
+    const currentToken = sessionStorage.getItem("access_token");
+    const currentIdToken = sessionStorage.getItem("id_token");
+    if (currentToken) {
+      sessionStorage.setItem("pre_link_access_token", currentToken);
+    }
+    if (currentIdToken) {
+      sessionStorage.setItem("pre_link_id_token", currentIdToken);
+    }
+    sessionStorage.setItem("linking_connection", connection);
+
+    const verifier = generateRandomString(64);
+    const challenge = await generateCodeChallenge(verifier);
+
+    sessionStorage.setItem("pkce_verifier", verifier);
+    sessionStorage.setItem("link_redirect", window.location.pathname);
+
+    const redirectUri = `${window.location.origin}/integrations`;
+
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: authConfig.clientId,
+      redirect_uri: redirectUri,
+      scope: "openid profile email",
+      connection,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+
+    window.location.href = `https://${authConfig.domain}/authorize?${params}`;
   }, []);
 
   // Logout
   const logout = useCallback(() => {
-    const config = getAuth0Config();
+    const authConfig = getAuth0Config();
 
     sessionStorage.removeItem("access_token");
     sessionStorage.removeItem("id_token");
@@ -228,18 +314,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false);
     api.setAccessToken("");
 
-    if (config.domain && config.clientId) {
+    if (authConfig.domain && authConfig.clientId) {
       const params = new URLSearchParams({
-        client_id: config.clientId,
-        returnTo: config.redirectUri,
+        client_id: authConfig.clientId,
+        returnTo: authConfig.redirectUri,
       });
-      window.location.href = `https://${config.domain}/v2/logout?${params}`;
+      window.location.href = `https://${authConfig.domain}/v2/logout?${params}`;
     }
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, isLoading, user, accessToken, login, logout, error }}
+      value={{ isAuthenticated, isLoading, user, accessToken, login, logout, linkAccount, error }}
     >
       {children}
     </AuthContext.Provider>
