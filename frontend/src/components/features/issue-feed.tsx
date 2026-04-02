@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, Clock, GitPullRequest, ArrowUpRight, FolderS
 import { Badge } from "@/components/ui/badge";
 import { IssueDetailModal } from "./issue-detail";
 import { EmptyState } from "@/components/ui/empty-state";
+import { api } from "@/lib/api";
 
 export interface IssueProps {
   id: string;
@@ -14,6 +15,7 @@ export interface IssueProps {
   daysStale?: number;
   provider: "jira" | "github";
   aiInsight?: string;
+  url?: string;
 }
 
 function IssueCard({ issue, onClick }: { issue: IssueProps; onClick: () => void }) {
@@ -102,11 +104,8 @@ export function IssueFeed() {
     async function fetchIssues() {
       setLoading(true);
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/issues`);
-        if (res.ok) {
-          const json = await res.json();
-          setIssues(json.data || []);
-        }
+        const res = await api.getDashboardIssues();
+        setIssues(res.data || []);
       } catch (err) {
         console.error("Failed to fetch issues", err);
       } finally {
@@ -147,7 +146,7 @@ export function IssueFeed() {
             ) : (
               issues.map((issue) => (
                 <IssueCard
-                  key={issue.id}
+                  key={`${issue.provider}-${issue.id}`}
                   issue={issue}
                   onClick={() => setSelectedIssue(issue)}
                 />

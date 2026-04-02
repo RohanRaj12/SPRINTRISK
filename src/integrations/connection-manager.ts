@@ -6,16 +6,17 @@
  * when connection status changes.
  *
  * Architecture:
- *   - On startup, tests all configured integrations
+ *   - On startup, tests Auth0 M2M connectivity
+ *   - Direct PAT checks run as fallback only
+ *   - User-specific Token Vault checks run on-demand via checkUserConnections()
  *   - Every 60s, re-tests connections and emits status changes
- *   - Provides API for querying current status
- *   - Caches connection metadata (user info, scopes, etc.)
  */
 
 import { getGitHubClient, type ConnectionTestResult as GitHubConnectionResult } from "./github-client.js";
 import { getSlackClient, type ConnectionTestResult as SlackConnectionResult } from "./slack-client.js";
 import { getJiraClient, type ConnectionTestResult as JiraConnectionResult } from "./jira-client.js";
 import { hasDirectGitHub, hasDirectSlack, hasDirectJira, config } from "../config.js";
+import { getUserLinkedServices } from "../services/token-vault.js";
 import { emitNotification } from "../routes/events.js";
 
 // ── Types ──
@@ -26,7 +27,7 @@ export interface IntegrationConnectionStatus {
   provider: IntegrationProvider;
   displayName: string;
   description: string;
-  status: "connected" | "disconnected" | "checking" | "error";
+  status: "connected" | "disconnected" | "checking" | "error" | "not_linked";
   account?: string;
   avatarUrl?: string;
   scopes?: string[];
@@ -36,6 +37,15 @@ export interface IntegrationConnectionStatus {
   metadata?: Record<string, unknown>;
   /** How to connect this integration */
   connectInstructions?: string[];
+  /** Auth method: "token_vault" | "direct_pat" | "none" */
+  authMethod?: string;
+}
+
+export interface UserConnectionStatus {
+  provider: IntegrationProvider | "github" | "jira" | "slack";
+  linked: boolean;
+  isFallback: boolean;
+  linkUrl?: string;
 }
 
 // ── Connection Manager ──
@@ -65,13 +75,10 @@ class ConnectionManager {
       description: "Monitor PRs, CI/CD status, commits, issues, and review bottlenecks.",
       status: "disconnected",
       connectInstructions: [
-        "1. Go to https://github.com/settings/tokens",
-        "2. Generate a Fine-grained PAT with these permissions:",
-        "   - Repository access: Select your repos",
-        "   - Permissions: Contents (read), Issues (read/write), Pull requests (read/write), Checks (read)",
-        "3. Set GITHUB_TOKEN in .env",
-        "4. Set GITHUB_DEFAULT_OWNER and GITHUB_DEFAULT_REPO for your target repo",
-        "5. (Optional) Set GITHUB_WEBHOOK_SECRET and configure webhook at your repo Settings > Webhooks",
+        "1. Click 'Connect GitHub' on the Integrations page",
+        "2. Authorize Sprint Guardian via Auth0 OAuth",
+        "3. Your GitHub token is securely stored in Auth0 Token Vault",
+        "4. (Dev fallback) Set GITHUB_TOKEN in .env for offline development",
       ],
     });
 
@@ -81,14 +88,10 @@ class ConnectionManager {
       description: "Send sprint alerts, DM developers, and monitor team communication.",
       status: "disconnected",
       connectInstructions: [
-        "1. Go to https://api.slack.com/apps and create a new app",
-        "2. Under OAuth & Permissions, add Bot Token Scopes:",
-        "   chat:write, channels:read, users:read, users:read.email, im:write, reactions:write",
-        "3. Install the app to your workspace",
-        "4. Copy the Bot User OAuth Token (xoxb-...)",
-        "5. Set SLACK_BOT_TOKEN in .env",
-        "6. Set SLACK_DEFAULT_CHANNEL (e.g., #engineering)",
-        "7. (Optional) Set SLACK_SIGNING_SECRET for webhook verification",
+        "1. Click 'Connect Slack' on the Integrations page",
+        "2. Authorize Sprint Guardian via Auth0 OAuth",
+        "3. Your Slack token is securely stored in Auth0 Token Vault",
+        "4. (Dev fallback) Set SLACK_BOT_TOKEN in .env for offline development",
       ],
     });
 
@@ -98,13 +101,10 @@ class ConnectionManager {
       description: "Track sprint issues, blockers, SLA violations, and status transitions.",
       status: "disconnected",
       connectInstructions: [
-        "1. Go to https://id.atlassian.com/manage-profile/security/api-tokens",
-        "2. Create an API token",
-        "3. Set JIRA_HOST (e.g., mycompany.atlassian.net) in .env",
-        "4. Set JIRA_EMAIL (your Atlassian account email)",
-        "5. Set JIRA_API_TOKEN (the token you created)",
-        "6. Set JIRA_DEFAULT_PROJECT (e.g., ENG)",
-        "7. (Optional) Configure a webhook in Jira: Project Settings > Webhooks, point to /api/webhooks/jira",
+        "1. Click 'Connect Jira' on the Integrations page",
+        "2. Authorize Sprint Guardian via Auth0 OAuth (Atlassian)",
+        "3. Your Jira token is securely stored in Auth0 Token Vault",
+        "4. (Dev fallback) Set JIRA_HOST, JIRA_EMAIL, JIRA_API_TOKEN in .env",
       ],
     });
   }
@@ -117,6 +117,22 @@ class ConnectionManager {
       this.checkSlack(),
       this.checkJira(),
     ]);
+  }
+
+  /**
+   * Check which services the current user has linked via Token Vault.
+   * Returns per-user status with link URLs for unconnected services.
+   */
+  async checkUserConnections(userId: string): Promise<UserConnectionStatus[]> {
+    const linked = await getUserLinkedServices(userId);
+    const services: Array<"github" | "jira" | "slack"> = ["github", "jira", "slack"];
+
+    return services.map((service) => ({
+      provider: service,
+      linked: linked[service].linked,
+      isFallback: linked[service].isFallback,
+      linkUrl: linked[service].linked ? undefined : getAuth0LinkUrl(service),
+    }));
   }
 
   /** Start periodic health checking (every 60s) */
@@ -157,7 +173,6 @@ class ConnectionManager {
     const previousStatus = status.status;
 
     try {
-      // Test M2M token acquisition
       const response = await fetch(`https://${config.auth0.domain}/oauth/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -177,10 +192,12 @@ class ConnectionManager {
         status.lastConnected = new Date().toISOString();
         status.scopes = ["openid", "profile", "email", "read:users", "read:user_idp_tokens"];
         status.error = undefined;
+        status.authMethod = "m2m_client_credentials";
         status.metadata = {
           domain: config.auth0.domain,
           audience: config.auth0.audience,
           tokenExpiresIn: data.expires_in,
+          tokenVaultEnabled: true,
         };
       } else {
         const body = await response.text();
@@ -206,7 +223,8 @@ class ConnectionManager {
     if (!hasDirectGitHub()) {
       status.status = "disconnected";
       status.lastChecked = new Date().toISOString();
-      status.error = "GITHUB_TOKEN not configured";
+      status.error = "Connect via Auth0 Token Vault or set GITHUB_TOKEN for dev mode";
+      status.authMethod = "none";
       return;
     }
 
@@ -223,6 +241,7 @@ class ConnectionManager {
       status.lastChecked = new Date().toISOString();
       status.lastConnected = new Date().toISOString();
       status.error = undefined;
+      status.authMethod = "direct_pat";
       status.metadata = {
         userId: result.user.id,
         name: result.user.name,
@@ -251,7 +270,8 @@ class ConnectionManager {
     if (!hasDirectSlack()) {
       status.status = "disconnected";
       status.lastChecked = new Date().toISOString();
-      status.error = "SLACK_BOT_TOKEN not configured";
+      status.error = "Connect via Auth0 Token Vault or set SLACK_BOT_TOKEN for dev mode";
+      status.authMethod = "none";
       return;
     }
 
@@ -266,13 +286,10 @@ class ConnectionManager {
       status.lastChecked = new Date().toISOString();
       status.lastConnected = new Date().toISOString();
       status.error = undefined;
+      status.authMethod = "direct_pat";
       status.scopes = [
-        "chat:write",
-        "channels:read",
-        "users:read",
-        "users:read.email",
-        "im:write",
-        "reactions:write",
+        "chat:write", "channels:read", "users:read",
+        "users:read.email", "im:write", "reactions:write",
       ];
       status.metadata = {
         team: result.team,
@@ -299,7 +316,8 @@ class ConnectionManager {
     if (!hasDirectJira()) {
       status.status = "disconnected";
       status.lastChecked = new Date().toISOString();
-      status.error = "JIRA_HOST, JIRA_EMAIL, or JIRA_API_TOKEN not configured";
+      status.error = "Connect via Auth0 Token Vault or set JIRA_HOST/EMAIL/API_TOKEN for dev mode";
+      status.authMethod = "none";
       return;
     }
 
@@ -315,6 +333,7 @@ class ConnectionManager {
       status.lastChecked = new Date().toISOString();
       status.lastConnected = new Date().toISOString();
       status.error = undefined;
+      status.authMethod = "direct_pat";
       status.scopes = result.scopes;
       status.metadata = {
         accountId: result.user.accountId,
@@ -345,13 +364,46 @@ class ConnectionManager {
       provider,
       status: status.status,
       account: status.account,
+      authMethod: status.authMethod,
       timestamp: status.lastChecked,
     });
 
     console.log(
-      `[ConnectionManager] ${provider}: ${status.status}${status.account ? ` (${status.account})` : ""}${status.error ? ` — ${status.error}` : ""}`
+      `[ConnectionManager] ${provider}: ${status.status}${status.account ? ` (${status.account})` : ""}${status.authMethod ? ` [${status.authMethod}]` : ""}${status.error ? ` — ${status.error}` : ""}`
     );
   }
+}
+
+// ── Auth0 Account Linking Helper ──
+
+/**
+ * Generate an Auth0 authorize URL for linking a new social/enterprise identity.
+ * Uses the "silent re-authorize" pattern (Option A):
+ * After initial login, redirect to Auth0 with connection= to link the IdP.
+ */
+export function getAuth0LinkUrl(
+  service: "github" | "jira" | "slack",
+  redirectUri?: string
+): string {
+  const connectionMap: Record<string, string> = {
+    github: config.connections.github,
+    jira: config.connections.jira,
+    slack: config.connections.slack,
+  };
+
+  const connection = connectionMap[service];
+  const redirect = redirectUri ?? "http://localhost:3000/integrations";
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: config.auth0.frontendClientId,
+    redirect_uri: redirect,
+    connection,
+    scope: "openid profile email",
+    audience: config.auth0.audience,
+  });
+
+  return `https://${config.auth0.domain}/authorize?${params}`;
 }
 
 // ── Singleton ──

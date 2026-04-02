@@ -6,8 +6,11 @@
  */
 
 import type { FastifyInstance } from "fastify";
+import { join } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { realSource } from "../data/data-source-manager.js";
 
-// ── In-memory config store (replace with DB in production) ──
+// ── Persistent config store (saved to file) ──
 
 export interface OrgConfig {
   jira: { site: string; projectKey: string; boardName: string; staleThresholdDays: number };
@@ -24,6 +27,36 @@ const DEFAULT_CONFIG: OrgConfig = {
 };
 
 const configStore = new Map<string, OrgConfig>();
+const CONFIG_DIR = join(process.cwd(), "config");
+const CONFIG_FILE = join(CONFIG_DIR, "org_settings.json");
+
+// Load from disk on module init
+function initializeStore() {
+  if (existsSync(CONFIG_FILE)) {
+    try {
+      const raw = readFileSync(CONFIG_FILE, "utf-8");
+      const data = JSON.parse(raw) as Record<string, OrgConfig>;
+      for (const [id, cfg] of Object.entries(data)) {
+        configStore.set(id, cfg);
+      }
+      console.info(`[Settings] Loaded configuration for ${configStore.size} orgs`);
+    } catch (err) {
+      console.error("[Settings] Failed to load config file:", err);
+    }
+  }
+}
+
+function persistStore() {
+  try {
+    if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR);
+    const data = Object.fromEntries(configStore.entries());
+    writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[Settings] Failed to save config file:", err);
+  }
+}
+
+initializeStore();
 
 export function getOrgConfig(orgId: string): OrgConfig {
   return configStore.get(orgId) ?? { ...DEFAULT_CONFIG };
@@ -32,8 +65,8 @@ export function getOrgConfig(orgId: string): OrgConfig {
 export async function settingsRoutes(fastify: FastifyInstance) {
   // ── Get config ──
   fastify.get("/api/settings/config", async (request) => {
-    const user = request.user as Record<string, unknown>;
-    const orgId = (user.org_id as string) ?? "default";
+    const user = request.user as Record<string, unknown> | undefined;
+    const orgId = (user?.org_id as string) ?? "default";
     return { config: getOrgConfig(orgId) };
   });
 
@@ -54,8 +87,8 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       },
     },
     async (request) => {
-      const user = request.user as Record<string, unknown>;
-      const orgId = (user.org_id as string) ?? "default";
+      const user = request.user as Record<string, unknown> | undefined;
+      const orgId = (user?.org_id as string) ?? "default";
       const existing = getOrgConfig(orgId);
       const updated: OrgConfig = {
         jira: { ...existing.jira, ...(request.body.jira ?? {}) },
@@ -64,7 +97,13 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         notifications: { ...existing.notifications, ...(request.body.notifications ?? {}) },
       };
       configStore.set(orgId, updated);
-      request.log.info({ orgId }, "Config saved");
+      persistStore();
+
+      // IMPORTANT: Clear the data cache for this user so they see their changes immediately
+      const userId = (user?.sub as string) || "system";
+      realSource.clearCache(userId);
+
+      request.log.info({ orgId, userId }, "Config saved and cache reset");
       return { config: updated };
     }
   );

@@ -16,6 +16,9 @@ export interface SprintIssue {
   daysStale?: number;
   provider: "jira" | "github";
   aiInsight?: string;
+  priority?: string;
+  issueType?: string;
+  url?: string;
 }
 
 export interface PRItem {

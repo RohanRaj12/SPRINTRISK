@@ -60,19 +60,6 @@ export function Sidebar({ className }: { className?: string }) {
 
       {/* Footer */}
       <div className="p-3 border-t border-border/50 space-y-1">
-        <Link
-          href="/settings"
-          className={cn(
-            "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors",
-            pathname === "/settings"
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          )}
-        >
-          <Settings size={16} />
-          <span>Settings</span>
-        </Link>
-
         {authLoading ? (
           <div className="flex items-center gap-2.5 px-3 py-2 text-xs text-muted-foreground">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />

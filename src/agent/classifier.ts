@@ -51,16 +51,35 @@ const ACTION_RISK_PROFILES: Record<string, ActionRiskProfile> = {
     mediumRiskClassification: "approval_required",
     highRiskClassification: "approval_required",
   },
-  // Future tools
-  jira_updater: {
-    baseRisk: "high",
-    lowRiskClassification: "approval_required",
-    mediumRiskClassification: "approval_required",
+  // ── Low-risk metadata tools (AUTO) ──
+  jira_labeler: {
+    baseRisk: "low",
+    lowRiskClassification: "auto",
+    mediumRiskClassification: "auto",
+    highRiskClassification: "approval_required",
+  },
+  jira_commenter: {
+    baseRisk: "low",
+    lowRiskClassification: "auto",
+    mediumRiskClassification: "auto",
     highRiskClassification: "approval_required",
   },
   github_commenter: {
     baseRisk: "medium",
     lowRiskClassification: "auto",
+    mediumRiskClassification: "auto",
+    highRiskClassification: "approval_required",
+  },
+  dependency_mapper: {
+    baseRisk: "low",
+    lowRiskClassification: "auto",
+    mediumRiskClassification: "auto",
+    highRiskClassification: "auto",
+  },
+  // ── High-risk write tools (always gated) ──
+  jira_updater: {
+    baseRisk: "high",
+    lowRiskClassification: "approval_required",
     mediumRiskClassification: "approval_required",
     highRiskClassification: "approval_required",
   },
@@ -96,8 +115,15 @@ const DEFAULT_POLICY: OrgPolicy = {
   requireAllApprovals: false,
   requireSlackDMApproval: true,
   approvalThreshold: "high",
-  autoApproveActions: ["jira_analyzer", "github_investigator"],
-  maxAutoStepsBeforeCheckpoint: 5,
+  autoApproveActions: [
+    "jira_analyzer",
+    "github_investigator",
+    "jira_labeler",
+    "jira_commenter",
+    "github_commenter",
+    "dependency_mapper",
+  ],
+  maxAutoStepsBeforeCheckpoint: 8,
 };
 
 // ── Risk Level Ordering ──
@@ -197,6 +223,28 @@ function classifyStep(
       classification: "approval_required",
       riskLevel: effectiveRisk,
       riskReasoning: `Risk level "${effectiveRisk}" meets or exceeds the approval threshold "${policy.approvalThreshold}".`,
+    };
+  }
+
+  // ── Confidence-based auto-promotion ──
+  // If the memory system has high-confidence success history for this
+  // exact action type, auto-promote it. This makes the agent
+  // progressively more autonomous the more it runs successfully.
+  const successMemories = memories.filter(
+    (m) =>
+      m.type === "outcome" &&
+      m.key.includes(step.actionType) &&
+      m.content.includes("success") &&
+      m.confidence > 0.9 &&
+      m.usageCount >= 5
+  );
+
+  if (successMemories.length > 0 && effectiveRisk !== "critical") {
+    return {
+      step,
+      classification: "auto",
+      riskLevel: effectiveRisk,
+      riskReasoning: `Auto-promoted by confidence engine: ${successMemories.length} high-confidence success records (confidence > 0.9, usage ≥ 5).`,
     };
   }
 

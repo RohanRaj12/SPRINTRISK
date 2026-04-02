@@ -21,8 +21,12 @@ const PUBLIC_PATHS = [
   "/api/webhooks/slack",
   "/api/integrations/live-status",
   "/api/integrations/connect-instructions",
+  "/api/integrations/link-url",
   "/api/agents/actions",
   "/api/agents/health-check",
+  "/api/dashboard",
+  "/api/settings",
+  "/api/events",
 ];
 
 function isPublicPath(url: string): boolean {
@@ -52,24 +56,26 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
     verify: {
       algorithms: ["RS256"],
       allowedIss: [`https://${config.auth0.domain}/`],
-      allowedAud: config.auth0.audience,
     },
   });
 
-  fastify.addHook(
-    "onRequest",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      // Skip auth for public/webhook endpoints
-      if (isPublicPath(request.url)) return;
-
+  fastify.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
+    if (isPublicPath(request.url)) {
       try {
         await request.jwtVerify();
       } catch (err) {
-        reply.status(401).send({
-          error: "Unauthorized",
-          message: "Invalid or missing access token",
-        });
+        // Ignore JWT verify errors for public paths
       }
+      return;
     }
-  );
+
+    try {
+      await request.jwtVerify();
+    } catch (err) {
+      reply.status(401).send({
+        error: "Unauthorized",
+        message: "Invalid or missing access token",
+      });
+    }
+  });
 });

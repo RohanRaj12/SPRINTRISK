@@ -98,14 +98,14 @@ class ApiClient {
 
   // ── Settings ──
 
-  async getDemoMode(): Promise<{ demoMode: boolean }> {
-    return this.request("/api/settings/demo-mode");
+  async getConfig(): Promise<{ config: any }> {
+    return this.request("/api/settings/config");
   }
 
-  async setDemoMode(enabled: boolean): Promise<{ success: boolean; demoMode: boolean }> {
-    return this.request("/api/settings/demo-mode", {
+  async saveConfig(config: any): Promise<void> {
+    return this.request("/api/settings/config", {
       method: "POST",
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify(config),
     });
   }
 
@@ -166,6 +166,53 @@ class ApiClient {
     return this.request("/api/integrations/status");
   }
 
+  async getUserIntegrationStatus(): Promise<{
+    userId: string;
+    services: Array<{
+      provider: string;
+      linked: boolean;
+      isFallback: boolean;
+      linkUrl?: string;
+      displayName: string;
+    }>;
+    allLinked: boolean;
+    timestamp: string;
+  }> {
+    return this.request("/api/integrations/user-status", { method: "POST", body: "{}" });
+  }
+
+  async getLiveStatus(): Promise<any> {
+    return this.request("/api/integrations/live-status");
+  }
+
+  async getConnectInstructions(): Promise<any> {
+    return this.request("/api/integrations/connect-instructions");
+  }
+
+  // ── Dashboard ──
+
+  async getDashboardIssues(): Promise<any> {
+    return this.request("/api/dashboard/issues");
+  }
+
+  async getDashboardAuditLog(): Promise<any> {
+    return this.request("/api/dashboard/audit-log");
+  }
+
+  async getDashboardPrs(): Promise<any> {
+    return this.request("/api/dashboard/prs");
+  }
+
+  /** Get Auth0 OAuth link URL for a specific service */
+  async getLinkUrl(service: "github" | "jira" | "slack"): Promise<{
+    service: string;
+    linkUrl: string;
+    connection: string;
+    instructions: string[];
+  }> {
+    return this.request(`/api/integrations/link-url/${service}`);
+  }
+
   // ── Health ──
   
   async healthCheck(): Promise<{ status: string; timestamp: string }> {
@@ -188,7 +235,7 @@ class ApiClient {
     triggeredBy: string;
     timestamp: string;
   }> {
-    return this.request("/audit/trigger", {
+    return this.request("/api/audit/trigger", {
       method: "POST",
       body: JSON.stringify(params ?? {}),
     });

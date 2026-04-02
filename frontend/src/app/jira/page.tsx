@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
 import { EmptyState } from "@/components/ui/empty-state";
+import { api } from "@/lib/api";
 
 export default function JiraPage() {
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
@@ -17,12 +18,9 @@ export default function JiraPage() {
     async function fetchIssues() {
       setLoading(true);
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/issues`);
-        if (res.ok) {
-          const json = await res.json();
-          const jiraOnly = (json.data || []).filter((i: IssueProps) => i.provider === "jira");
-          setIssues(jiraOnly);
-        }
+        const res = await api.getDashboardIssues();
+        const jiraOnly = (res.data || []).filter((i: IssueProps) => i.provider === "jira");
+        setIssues(jiraOnly);
       } catch (err) {
         console.error("Failed to fetch Jira issues", err);
       } finally {

@@ -3,6 +3,8 @@
 export {
   getDelegatedToken,
   fetchWithDelegatedToken,
+  hasLinkedIdentity,
+  getUserLinkedServices,
   type DelegatedToken,
 } from "./token-vault.js";
 

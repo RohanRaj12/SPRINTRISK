@@ -1,0 +1,26 @@
+{
+  "default": {
+    "jira": {
+      "site": "",
+      "projectKey": "",
+      "boardName": "",
+      "staleThresholdDays": 3
+    },
+    "github": {
+      "owner": "RohanRaj12",
+      "repo": "Sprint_Test",
+      "branch": "main"
+    },
+    "slack": {
+      "channel": "#engineering",
+      "alertSeverity": "medium",
+      "enabled": true
+    },
+    "notifications": {
+      "staleTickets": true,
+      "ciFailures": true,
+      "prReminders": true,
+      "escalations": true
+    }
+  }
+}

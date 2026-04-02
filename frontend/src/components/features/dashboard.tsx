@@ -19,8 +19,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+import { api } from "@/lib/api";
 
 interface Issue {
   id: string;
@@ -72,17 +71,11 @@ export function Dashboard() {
     setLoading(true);
     try {
       const [issuesRes, logsRes] = await Promise.all([
-        fetch(`${API}/api/dashboard/issues`),
-        fetch(`${API}/api/dashboard/audit-log`),
+        api.getDashboardIssues(),
+        api.getDashboardAuditLog(),
       ]);
-      if (issuesRes.ok) {
-        const json = await issuesRes.json();
-        setIssues(json.data || []);
-      }
-      if (logsRes.ok) {
-        const json = await logsRes.json();
-        setAuditLogs(json.data || []);
-      }
+      setIssues(issuesRes.data || []);
+      setAuditLogs(logsRes.data || []);
     } catch (err) {
       console.error("Dashboard fetch failed", err);
     } finally {
@@ -95,7 +88,7 @@ export function Dashboard() {
   const handleRunAudit = async () => {
     setAuditing(true);
     try {
-      await fetch(`${API}/api/audit/trigger`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      await api.triggerAudit();
       setTimeout(() => { fetchData(); setAuditing(false); }, 2000);
     } catch {
       setAuditing(false);
@@ -185,7 +178,7 @@ export function Dashboard() {
                 <p className="text-xs text-muted-foreground py-6 text-center">No critical risks detected</p>
               ) : (
                 topRisks.map((issue) => (
-                  <div key={issue.id} className="flex items-center gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2.5">
+                  <div key={`${issue.provider}-${issue.id}`} className="flex items-center gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2.5">
                     {issue.status === "blocked" ? (
                       <AlertCircle size={14} className="text-red-400 shrink-0" />
                     ) : (

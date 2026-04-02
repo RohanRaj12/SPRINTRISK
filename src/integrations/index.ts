@@ -40,7 +40,9 @@ export {
 
 export {
   getConnectionManager,
+  getAuth0LinkUrl,
   ConnectionManager,
   type IntegrationProvider,
   type IntegrationConnectionStatus,
+  type UserConnectionStatus,
 } from "./connection-manager.js";

@@ -91,9 +91,9 @@ export function IssueDetailModal({ issue, open, onOpenChange }: IssueDetailModal
               <span className="text-muted-foreground">Assignee</span>
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-5 rounded-full bg-secondary text-[10px] flex items-center justify-center font-bold">
-                  {issue.assignee.substring(0, 2).toUpperCase()}
+                  {(issue.assignee || "Unassigned").substring(0, 2).toUpperCase()}
                 </div>
-                <span className="font-medium">{issue.assignee}</span>
+                <span className="font-medium">{issue.assignee || "Unassigned"}</span>
               </div>
             </div>
             <span className="text-border">|</span>
@@ -132,9 +132,9 @@ export function IssueDetailModal({ issue, open, onOpenChange }: IssueDetailModal
             variant="ghost"
             className="text-xs gap-1"
             onClick={() => {
-              const url = issue.provider === "github"
+              const url = issue.url || (issue.provider === "github"
                 ? `https://github.com/org/repo/pull/${issue.id.replace("PR-", "")}`
-                : `https://jira.atlassian.net/browse/${issue.id}`;
+                : `https://jira.atlassian.net/browse/${issue.id}`);
               window.open(url, "_blank");
             }}
           >

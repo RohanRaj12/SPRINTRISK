@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { type IssueProps } from "@/components/features/issue-feed";
 import { EmptyState } from "@/components/ui/empty-state";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+import { api } from "@/lib/api";
 
 export default function IssuesPage() {
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
@@ -22,12 +21,10 @@ export default function IssuesPage() {
       setLoading(true);
       try {
         const [issuesRes, prsRes] = await Promise.all([
-          fetch(`${API}/api/dashboard/issues`),
-          fetch(`${API}/api/dashboard/prs`),
+          api.getDashboardIssues(),
+          api.getDashboardPrs(),
         ]);
-        const issuesJson = issuesRes.ok ? await issuesRes.json() : { data: [] };
-        const prsJson = prsRes.ok ? await prsRes.json() : { data: [] };
-        setIssues([...(issuesJson.data || []), ...(prsJson.data || [])]);
+        setIssues([...(issuesRes.data || []), ...(prsRes.data || [])]);
       } catch (err) {
         console.error("Failed to fetch issues", err);
       } finally {
@@ -136,7 +133,7 @@ export default function IssuesPage() {
           ) : (
             filtered.map((issue) => (
               <button
-                key={issue.id}
+                key={`${issue.provider}-${issue.id}`}
                 type="button"
                 onClick={() => setSelectedIssue(issue)}
                 className="group w-full text-left rounded-lg border border-border/40 bg-card/30 hover:bg-card hover:border-border/60 p-3 transition-all"
@@ -157,7 +154,7 @@ export default function IssuesPage() {
                     <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate">{issue.title}</h3>
                   </div>
                   <div className="w-6 h-6 rounded-full bg-secondary text-[9px] flex items-center justify-center font-medium shrink-0">
-                    {issue.assignee.substring(0, 2).toUpperCase()}
+                    {(issue.assignee || "Unassigned").substring(0, 2).toUpperCase()}
                   </div>
                 </div>
                 {issue.aiInsight && (

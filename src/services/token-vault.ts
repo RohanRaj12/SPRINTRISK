@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { config, getDirectFallbackToken } from "../config.js";
 import { getManagementToken } from "./auth0-management.js";
 import { enforceRateLimit } from "../lib/rate-limiter.js";
 
@@ -21,6 +21,8 @@ export interface DelegatedToken {
   token_type: string;
   /** Connection/provider name */
   provider: ServiceName;
+  /** Whether this token came from a direct fallback (not Token Vault) */
+  isFallback?: boolean;
 }
 
 /**
@@ -31,10 +33,9 @@ export interface DelegatedToken {
  * identity tokens that were stored during social/enterprise login.
  *
  * Flow:
- *   1. Get an M2M management token (cached)
- *   2. Call GET /api/v2/users/{userId}/identities to list linked identities
- *   3. Find the identity matching the requested service connection
- *   4. Return the access_token from that identity
+ *   1. Try Auth0 Token Vault (primary — no PATs needed)
+ *   2. Fall back to direct env tokens (dev mode only)
+ *   3. Throw a clear error directing user to link their account
  *
  * @param userId  - Auth0 user ID (e.g. "auth0|abc123" or "github|12345")
  * @param service - The service to get a token for ("jira" | "github" | "slack")
@@ -48,67 +49,133 @@ export async function getDelegatedToken(
     throw new Error(`Unknown service: ${service}`);
   }
 
-  // Step 1: Get management API token
-  const mgmtToken = await getManagementToken();
+  // ── Step 1: Try Auth0 Token Vault (primary path) ──
+  try {
+    const mgmtToken = await getManagementToken();
 
-  // Step 2: Fetch user's linked identities
-  const response = await fetch(
-    `https://${config.auth0.domain}/api/v2/users/${encodeURIComponent(userId)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${mgmtToken}`,
-        "Content-Type": "application/json",
-      },
+    const response = await fetch(
+      `https://${config.auth0.domain}/api/v2/users/${encodeURIComponent(userId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${mgmtToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (response.ok) {
+      const user = (await response.json()) as {
+        identities: Array<{
+          connection: string;
+          provider: string;
+          access_token?: string;
+          user_id: string;
+        }>;
+      };
+
+      const identity = user.identities?.find(
+        (id) =>
+          id.connection.toLowerCase() === connectionName.toLowerCase() ||
+          id.provider.toLowerCase() === connectionName.toLowerCase()
+      );
+
+      if (identity?.access_token) {
+        return {
+          access_token: identity.access_token,
+          token_type: "Bearer",
+          provider: service,
+        };
+      }
+
+      // User exists but hasn't linked this service
+      console.warn(
+        `[TokenVault] User ${userId} has no linked identity for "${connectionName}". ` +
+        `Available: ${user.identities?.map((i) => i.connection).join(", ") || "none"}. ` +
+        `Trying direct fallback...`
+      );
+    } else {
+      const body = await response.text();
+      console.warn(
+        `[TokenVault] Failed to fetch user identities: ${response.status} ${body}. Trying fallback...`
+      );
     }
+  } catch (err) {
+    console.warn(
+      `[TokenVault] Auth0 Token Vault error for ${service}: ${err instanceof Error ? err.message : String(err)}. Trying fallback...`
+    );
+  }
+
+  // ── Step 2: Fall back to direct env tokens (dev/hackathon mode) ──
+  const fallbackToken = getDirectFallbackToken(service);
+  if (fallbackToken) {
+    console.info(
+      `[TokenVault] Using direct env fallback for ${service} (dev mode). ` +
+      `In production, link your ${service} account via Auth0.`
+    );
+    return {
+      access_token: fallbackToken,
+      token_type: service === "jira" ? "Basic" : "Bearer",
+      provider: service,
+      isFallback: true,
+    };
+  }
+
+  // ── Step 3: No token available — clear error with user action ──
+  throw new Error(
+    `No ${service} token available. Please connect your ${service} account ` +
+    `at the Integrations page, or set ${getEnvVarName(service)} in .env for dev mode.`
   );
+}
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Failed to fetch user identities: ${response.status} ${body}`
-    );
+/**
+ * Check if a user has a linked identity for a service in Token Vault.
+ * Returns true/false without throwing.
+ */
+export async function hasLinkedIdentity(
+  userId: string,
+  service: ServiceName
+): Promise<boolean> {
+  try {
+    const token = await getDelegatedToken(userId, service);
+    return !!token.access_token;
+  } catch {
+    return false;
   }
+}
 
-  const user = (await response.json()) as {
-    identities: Array<{
-      connection: string;
-      provider: string;
-      access_token?: string;
-      user_id: string;
-    }>;
-  };
-
-  // Step 3: Find the identity for the requested service
-  const identity = user.identities?.find(
-    (id) =>
-      id.connection.toLowerCase() === connectionName.toLowerCase() ||
-      id.provider.toLowerCase() === connectionName.toLowerCase()
-  );
-
-  if (!identity) {
-    throw new Error(
-      `User ${userId} has no linked identity for "${connectionName}". ` +
-      `Available connections: ${user.identities?.map((i) => i.connection).join(", ") || "none"}`
-    );
-  }
-
-  if (!identity.access_token) {
-    throw new Error(
-      `Identity "${connectionName}" for user ${userId} has no access_token. ` +
-      `Ensure Token Vault is enabled for this connection in the Auth0 dashboard.`
-    );
-  }
+/**
+ * Check linked status for all services for a given user.
+ */
+export async function getUserLinkedServices(
+  userId: string
+): Promise<Record<ServiceName, { linked: boolean; isFallback: boolean }>> {
+  const results = await Promise.allSettled([
+    getDelegatedToken(userId, "github"),
+    getDelegatedToken(userId, "jira"),
+    getDelegatedToken(userId, "slack"),
+  ]);
 
   return {
-    access_token: identity.access_token,
-    token_type: "Bearer",
-    provider: service,
+    github: {
+      linked: results[0].status === "fulfilled",
+      isFallback: results[0].status === "fulfilled" ? !!results[0].value.isFallback : false,
+    },
+    jira: {
+      linked: results[1].status === "fulfilled",
+      isFallback: results[1].status === "fulfilled" ? !!results[1].value.isFallback : false,
+    },
+    slack: {
+      linked: results[2].status === "fulfilled",
+      isFallback: results[2].status === "fulfilled" ? !!results[2].value.isFallback : false,
+    },
   };
 }
 
 /**
  * Helper: make an authenticated fetch call to an external service
  * using a delegated token from Auth0 Token Vault.
+ *
+ * Handles both Bearer and Basic auth modes automatically.
  *
  * @example
  * const data = await fetchWithDelegatedToken(userId, "github", "https://api.github.com/repos/...");
@@ -122,14 +189,34 @@ export async function fetchWithDelegatedToken(
   // Enforce per-service rate limits before making the call
   await enforceRateLimit(service);
 
-  const { access_token } = await getDelegatedToken(userId, service);
+  const { access_token, token_type, isFallback } = await getDelegatedToken(userId, service);
+  console.info(`[TokenVault] Using ${token_type} token for ${service} (fallback: ${!!isFallback}) to ${url}`);
 
   const headers = new Headers(options.headers);
-  headers.set("Authorization", `Bearer ${access_token}`);
+
+  // Jira Basic Auth uses "Basic <base64>", OAuth Bearer uses "Bearer <token>"
+  if (token_type === "Basic") {
+    headers.set("Authorization", `Basic ${access_token}`);
+  } else {
+    headers.set("Authorization", `Bearer ${access_token}`);
+  }
+
   headers.set("Accept", "application/json");
 
-  return fetch(url, {
+  const res = await fetch(url, {
     ...options,
     headers,
   });
+  console.info(`[TokenVault] Response from ${service}: ${res.status}`);
+  return res;
+}
+
+// ── Internal helpers ──
+
+function getEnvVarName(service: ServiceName): string {
+  switch (service) {
+    case "github": return "GITHUB_TOKEN";
+    case "slack": return "SLACK_BOT_TOKEN";
+    case "jira": return "JIRA_HOST + JIRA_EMAIL + JIRA_API_TOKEN";
+  }
 }

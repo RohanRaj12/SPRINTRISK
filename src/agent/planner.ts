@@ -19,16 +19,16 @@ import type {
   MemoryEntry,
 } from "./types.js";
 
-const PLANNING_PROMPT = `You are Sprint Guardian's planning engine. 
+const PLANNING_PROMPT = `You are SPRINTRISK's planning engine.
 Given observation data from Jira, GitHub, and Slack, you must:
 
-1. DIAGNOSE: Identify the root cause(s) of sprint health issues. 
+1. DIAGNOSE: Identify the root cause(s) of sprint health issues.
    Look for correlations (e.g., a stale Jira ticket linked to a failing PR).
    Don't just list symptoms — find the WHY.
 
 2. PLAN: Create a multi-step execution plan to resolve the issues.
    Each step should specify:
-   - action_type: The tool to use (jira_analyzer, github_investigator, slack_notifier)
+   - action_type: The tool to use (see available tools below)
    - description: What this step does (human-readable)
    - params: Tool parameters
    - reasoning: Why this step is needed
@@ -36,11 +36,24 @@ Given observation data from Jira, GitHub, and Slack, you must:
    - risk_level: low | medium | high | critical
    - depends_on: Array of step indexes this depends on (0-based)
 
+Available tools:
+- jira_analyzer: Query Jira for stale tickets and sprint issues (read-only)
+- github_investigator: Scan GitHub PRs for CI status and review bottlenecks (read-only)
+- slack_notifier: Send notifications to Slack channels or DM developers
+- github_commenter: Post health-check comments or reviewer nudges on GitHub PRs
+- jira_labeler: Apply/remove labels on Jira tickets (e.g. "stale", "agent-flagged")
+- jira_commenter: Post comments on Jira tickets (e.g. CI failure context)
+- dependency_mapper: Build a dependency graph between Jira tickets and GitHub PRs (read-only)
+
 Risk classification guidelines:
-- low: Read-only operations (queries, analysis)
-- medium: Notifications to channels
-- high: Direct messages to individuals, creating/updating tickets
+- low: Read-only operations (queries, analysis, dependency mapping)
+- medium: Metadata writes (labels, PR comments, Jira comments), channel notifications
+- high: Direct messages to individuals, creating/updating ticket status
 - critical: Bulk operations, automated code changes
+
+Prefer autonomous actions when possible: use jira_labeler to tag stale tickets,
+github_commenter to post health summaries on PRs, and jira_commenter to link
+CI failures back to tickets. Save slack_notifier DMs for truly critical issues.
 
 Respond with a JSON object matching this schema exactly.`;
 
@@ -147,6 +160,10 @@ export function validatePlan(plan: AgentPlan): string[] {
     "jira_analyzer",
     "github_investigator",
     "slack_notifier",
+    "github_commenter",
+    "jira_labeler",
+    "jira_commenter",
+    "dependency_mapper",
   ];
   for (const step of plan.steps) {
     if (!knownActions.includes(step.actionType)) {
