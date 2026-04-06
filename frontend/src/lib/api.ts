@@ -203,6 +203,23 @@ class ApiClient {
     return this.request("/api/dashboard/prs");
   }
 
+  async getDashboardApprovals(): Promise<any> {
+    return this.request("/api/dashboard/approvals");
+  }
+
+  // ── Demo Mode ──
+
+  async getDemoMode(): Promise<{ demoMode: boolean }> {
+    return this.request("/api/settings/demo-mode");
+  }
+
+  async setDemoMode(enabled: boolean): Promise<{ demoMode: boolean }> {
+    return this.request("/api/settings/demo-mode", {
+      method: "POST",
+      body: JSON.stringify({ demoMode: enabled }),
+    });
+  }
+
   /** Get Auth0 OAuth link URL for a specific service */
   async getLinkUrl(service: "github" | "jira" | "slack"): Promise<{
     service: string;

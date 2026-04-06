@@ -92,11 +92,17 @@ export interface DataResponse<T> {
   data: T;
   source: "live" | "demo";
   timestamp: string;
+  warnings?: string[];
 }
 
 export function wrapResponse<T>(
   data: T,
-  source: "live" | "demo"
+  source: "live" | "demo",
+  warnings?: string[]
 ): DataResponse<T> {
-  return { data, source, timestamp: new Date().toISOString() };
+  const resp: DataResponse<T> = { data, source, timestamp: new Date().toISOString() };
+  if (warnings && warnings.length > 0) {
+    resp.warnings = warnings;
+  }
+  return resp;
 }

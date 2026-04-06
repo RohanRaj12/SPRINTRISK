@@ -26,6 +26,7 @@ export async function getManagementToken(): Promise<string> {
         client_id: config.auth0.m2mClientId,
         client_secret: config.auth0.m2mClientSecret,
         audience: `https://${config.auth0.domain}/api/v2/`,
+        scope: "read:users read:user_idp_tokens",
       }),
     }
   );

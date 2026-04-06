@@ -302,29 +302,40 @@ export async function executeOrchestrated(
 
 /**
  * OBSERVE: Gather data from Jira, GitHub, and Slack using tool adapters.
+ * Falls back to org config settings when explicit params are not provided.
  */
 async function phaseObserve(input: AuditRunInput): Promise<ObservationData> {
   const observations: ObservationData = {};
+
+  // Fall back to org config if explicit params not provided
+  const { getOrgConfig } = await import("../routes/settings.js");
+  const { config } = await import("../config.js");
+  const orgConfig = getOrgConfig("default");
+
+  const jiraSite = input.jiraSite || orgConfig.jira.site || config.jira.host;
+  const jiraProjectKey = input.jiraProjectKey || orgConfig.jira.projectKey || config.jira.defaultProject;
+  const githubOwner = input.githubOwner || orgConfig.github.owner || config.github.defaultOwner;
+  const githubRepo = input.githubRepo || orgConfig.github.repo || config.github.defaultRepo;
 
   // Call real tools via Token Vault
   const jiraTool = registry.get("jira_analyzer");
   const githubTool = registry.get("github_investigator");
 
   const [jiraResult, githubResult] = await Promise.allSettled([
-    input.jiraSite && input.jiraProjectKey && jiraTool
+    jiraSite && jiraProjectKey && jiraTool
       ? jiraTool.execute(
           {
-            jira_site: input.jiraSite,
-            project_key: input.jiraProjectKey,
+            jira_site: jiraSite,
+            project_key: jiraProjectKey,
           },
           input.userId
         )
       : Promise.resolve(null),
-    input.githubOwner && input.githubRepo && githubTool
+    githubOwner && githubRepo && githubTool
       ? githubTool.execute(
           {
-            owner: input.githubOwner,
-            repo: input.githubRepo,
+            owner: githubOwner,
+            repo: githubRepo,
           },
           input.userId
         )

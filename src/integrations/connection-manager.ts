@@ -221,10 +221,15 @@ class ConnectionManager {
     const previousStatus = status.status;
 
     if (!hasDirectGitHub()) {
-      status.status = "disconnected";
+      // No direct PAT — Token Vault is the primary auth method
+      status.status = "not_linked";
       status.lastChecked = new Date().toISOString();
-      status.error = "Connect via Auth0 Token Vault or set GITHUB_TOKEN for dev mode";
-      status.authMethod = "none";
+      status.error = undefined;
+      status.authMethod = "token_vault";
+      status.metadata = { ...status.metadata, note: "Per-user auth via Auth0 Token Vault. Connect your GitHub account on the Integrations page." };
+      if (previousStatus !== status.status) {
+        this.emitStatusChange("github", status);
+      }
       return;
     }
 
@@ -314,10 +319,15 @@ class ConnectionManager {
     const previousStatus = status.status;
 
     if (!hasDirectJira()) {
-      status.status = "disconnected";
+      // No direct credentials — Token Vault is the primary auth method
+      status.status = "not_linked";
       status.lastChecked = new Date().toISOString();
-      status.error = "Connect via Auth0 Token Vault or set JIRA_HOST/EMAIL/API_TOKEN for dev mode";
-      status.authMethod = "none";
+      status.error = undefined;
+      status.authMethod = "token_vault";
+      status.metadata = { ...status.metadata, note: "Per-user auth via Auth0 Token Vault. Connect your Jira account on the Integrations page." };
+      if (previousStatus !== status.status) {
+        this.emitStatusChange("jira", status);
+      }
       return;
     }
 

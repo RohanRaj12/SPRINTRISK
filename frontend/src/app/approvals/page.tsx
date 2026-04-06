@@ -23,6 +23,8 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { motion, AnimatePresence } from "framer-motion";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 
 // ── Types ──
 
@@ -352,18 +354,17 @@ function getTimeUntil(dateStr: string): string {
 // ── Page Component ──
 
 export default function ApprovalsPage() {
+  const { isLoading: authLoading } = useAuth();
   const [filter, setFilter] = useState<string>("pending");
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (authLoading) return;
     async function fetchApprovals() {
       setLoading(true);
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/approvals`);
-        if (res.ok) {
-          const json = await res.json();
-          setApprovals(json.data || []);
-        }
+        const res = await api.getDashboardApprovals();
+        setApprovals(res.data || []);
       } catch (err) {
         console.error("Failed to fetch approvals", err);
       } finally {
@@ -371,7 +372,7 @@ export default function ApprovalsPage() {
       }
     }
     fetchApprovals();
-  }, []);
+  }, [authLoading]);
 
   const filteredApprovals =
     filter === "all"

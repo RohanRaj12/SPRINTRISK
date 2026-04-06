@@ -1,3 +1,6 @@
+// Load .env FIRST — must happen before any TLS connections
+import "dotenv/config";
+
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { config } from "./config.js";

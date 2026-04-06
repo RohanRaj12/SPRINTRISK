@@ -89,10 +89,10 @@ const PLATFORMS: Platform[] = [
 // ── Page Component ──
 
 export default function IntegrationsPage() {
-  const { isAuthenticated, user, login, linkAccount } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user, login, linkAccount } = useAuth();
 
   // Live status from backend (optional — page works without it)
-  const [liveStatuses, setLiveStatuses] = useState<Record<string, string>>({});
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, { status: string; authMethod?: string }>>({});
   const [backendReachable, setBackendReachable] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [justConnected, setJustConnected] = useState(false);
@@ -104,14 +104,14 @@ export default function IntegrationsPage() {
 
   // Try to fetch live status from backend (non-blocking — page renders regardless)
   const fetchStatus = useCallback(async () => {
-    let map: Record<string, string> = {};
+    let map: Record<string, { status: string; authMethod?: string }> = {};
 
     // Read locally persisted connection status (survives session changes)
     try {
       const stored = JSON.parse(localStorage.getItem("sg_connected_services") || "{}");
       for (const [provider, info] of Object.entries(stored)) {
         if ((info as any)?.linked) {
-          map[provider] = "connected";
+          map[provider] = { status: "connected", authMethod: "local_storage" };
         }
       }
     } catch {
@@ -122,9 +122,12 @@ export default function IntegrationsPage() {
       const res = await api.getLiveStatus();
       if (res?.integrations) {
         for (const i of res.integrations) {
-          // Only override if backend says connected (don't override local "connected" with backend "disconnected")
-          if (i.status === "connected") {
-            map[i.provider] = i.status;
+          // Backend status takes priority — store actual status and auth method
+          if (i.status === "connected" || i.status === "error") {
+            map[i.provider] = { status: i.status, authMethod: i.authMethod };
+          } else if (!map[i.provider]) {
+            // Don't override a local "connected" with "disconnected" or "not_linked"
+            map[i.provider] = { status: i.status, authMethod: i.authMethod };
           }
         }
         setBackendReachable(true);
@@ -139,7 +142,7 @@ export default function IntegrationsPage() {
         if (userRes?.services) {
           userRes.services.forEach(s => {
             if (s.linked) {
-              map[s.provider] = "connected";
+              map[s.provider] = { status: "connected", authMethod: s.isFallback ? "direct_pat" : "token_vault" };
             }
           });
         }
@@ -210,7 +213,11 @@ export default function IntegrationsPage() {
 
   const getStatusForPlatform = (id: string) => {
     if (!backendReachable) return "unknown";
-    return liveStatuses[id] ?? "disconnected";
+    return liveStatuses[id]?.status ?? "disconnected";
+  };
+
+  const getAuthMethodForPlatform = (id: string): string | undefined => {
+    return liveStatuses[id]?.authMethod;
   };
 
   const statusDisplay = (status: string) => {
@@ -324,8 +331,10 @@ export default function IntegrationsPage() {
         <div className="space-y-4">
           {PLATFORMS.map((platform, index) => {
             const status = getStatusForPlatform(platform.id);
+            const authMethod = getAuthMethodForPlatform(platform.id);
             const sd = statusDisplay(status);
             const isConnected = status === "connected";
+            const isDirectPat = authMethod === "direct_pat";
 
             return (
               <motion.div
@@ -359,7 +368,7 @@ export default function IntegrationsPage() {
                             {platform.description}
                           </p>
 
-                          {/* Connect Button — ALWAYS SHOWN when not connected */}
+                          {/* Connect Button — shown when not connected */}
                           {!isConnected && (
                             <Button
                               size="sm"
@@ -375,7 +384,11 @@ export default function IntegrationsPage() {
                           {isConnected && (
                             <div className="flex items-center gap-2 text-xs text-emerald-400">
                               <CheckCircle2 size={14} />
-                              <span>Securely connected via Auth0 Token Vault</span>
+                              <span>
+                                {isDirectPat
+                                  ? "Connected via API credentials (.env)"
+                                  : "Securely connected via Auth0 Token Vault"}
+                              </span>
                             </div>
                           )}
                         </div>

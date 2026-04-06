@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 interface Issue {
   id: string;
@@ -62,10 +63,13 @@ function getRiskColor(score: number) {
 }
 
 export function Dashboard() {
+  const { isLoading: authLoading, isAuthenticated } = useAuth();
   const [issues, setIssues] = useState<Issue[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [auditing, setAuditing] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   async function fetchData() {
     setLoading(true);
@@ -76,6 +80,12 @@ export function Dashboard() {
       ]);
       setIssues(issuesRes.data || []);
       setAuditLogs(logsRes.data || []);
+      // Collect warnings from all responses
+      const allWarnings: string[] = [];
+      if (issuesRes.warnings) allWarnings.push(...issuesRes.warnings);
+      if (logsRes.warnings) allWarnings.push(...logsRes.warnings);
+      // Deduplicate
+      setWarnings([...new Set(allWarnings)]);
     } catch (err) {
       console.error("Dashboard fetch failed", err);
     } finally {
@@ -83,14 +93,24 @@ export function Dashboard() {
     }
   }
 
-  useEffect(() => { fetchData(); }, []);
+  // Wait for auth to finish loading before fetching dashboard data
+  useEffect(() => {
+    if (!authLoading) {
+      fetchData();
+    }
+  }, [authLoading]);
 
   const handleRunAudit = async () => {
     setAuditing(true);
+    setAuditError(null);
     try {
-      await api.triggerAudit();
-      setTimeout(() => { fetchData(); setAuditing(false); }, 2000);
-    } catch {
+      const result = await api.triggerAudit();
+      // Refresh dashboard data after audit completes
+      await fetchData();
+      setAuditing(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Audit failed. Check your integrations and try again.";
+      setAuditError(message);
       setAuditing(false);
     }
   };
@@ -135,6 +155,23 @@ export function Dashboard() {
             {auditing ? "Running..." : "Run Audit"}
           </Button>
         </div>
+
+        {auditError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {auditError}
+          </div>
+        )}
+
+        {warnings.length > 0 && (
+          <div className="space-y-2">
+            {warnings.map((w, i) => (
+              <div key={i} className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400 flex items-start gap-2">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>{w}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Risk Score + Metric Cards */}
         <div className="grid grid-cols-6 gap-3">

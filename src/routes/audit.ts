@@ -22,7 +22,7 @@ interface TriggerBody {
 
 export async function auditRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: TriggerBody }>(
-    "/audit/trigger",
+    "/api/audit/trigger",
     {
       schema: {
         body: {
@@ -38,9 +38,13 @@ export async function auditRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest<{ Body: TriggerBody }>, reply: FastifyReply) => {
-      const user = request.user as Record<string, unknown>;
-      const userId = user.sub as string;
-      const orgId = (user.org_id as string) ?? "default-org";
+      const user = request.user as Record<string, unknown> | undefined;
+      const userId = (user?.sub as string) || "system";
+      const orgId = (user?.org_id as string) ?? "default-org";
+
+      if (!user?.sub) {
+        request.log.warn("Audit triggered without authenticated user — Token Vault may fail");
+      }
 
       request.log.info({ userId }, "Orchestrated audit triggered");
 

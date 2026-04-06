@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 
 // ── Types ──
 
@@ -159,20 +161,19 @@ function AuditEntryRow({ entry, isLast }: { entry: AuditEntry; isLast: boolean }
 // ── Page Component ──
 
 export default function AuditLogPage() {
+  const { isLoading: authLoading } = useAuth();
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (authLoading) return;
     async function fetchLogs() {
       setLoading(true);
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/audit-log`);
-        if (res.ok) {
-          const json = await res.json();
-          const mapped = (json.data || []).map((e: any) => ({ ...e, createdAt: e.timestamp || e.createdAt }));
-          setEntries(mapped);
-        }
+        const res = await api.getDashboardAuditLog();
+        const mapped = (res.data || []).map((e: any) => ({ ...e, createdAt: e.timestamp || e.createdAt }));
+        setEntries(mapped);
       } catch (err) {
         console.error("Failed to fetch audit logs", err);
       } finally {
@@ -180,7 +181,7 @@ export default function AuditLogPage() {
       }
     }
     fetchLogs();
-  }, []);
+  }, [authLoading]);
 
   const filteredEntries = entries.filter((e) => {
     if (categoryFilter !== "all" && e.category !== categoryFilter) return false;

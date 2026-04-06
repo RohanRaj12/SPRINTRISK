@@ -98,9 +98,20 @@ class JiraClient {
   private host: string;
   private authHeader: string;
 
-  constructor(host: string, email: string, apiToken: string) {
+  /**
+   * Create a Jira client.
+   * - 3-arg form: Basic Auth (email + API token) — for direct credentials / dev mode
+   * - 2-arg form: Bearer Auth (OAuth token) — for Token Vault
+   */
+  constructor(host: string, emailOrBearerToken: string, apiToken?: string) {
     this.host = host.replace(/\/+$/, "");
-    this.authHeader = "Basic " + Buffer.from(`${email}:${apiToken}`).toString("base64");
+    if (apiToken !== undefined) {
+      // Basic auth mode (email + API token)
+      this.authHeader = "Basic " + Buffer.from(`${emailOrBearerToken}:${apiToken}`).toString("base64");
+    } else {
+      // Bearer token mode (OAuth via Token Vault)
+      this.authHeader = `Bearer ${emailOrBearerToken}`;
+    }
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -329,6 +340,16 @@ export function createJiraClientWithCredentials(
   apiToken: string
 ): JiraClient {
   return new JiraClient(host, email, apiToken);
+}
+
+/**
+ * Create a Jira client using an OAuth bearer token from Token Vault.
+ */
+export function createJiraClientWithToken(
+  host: string,
+  bearerToken: string
+): JiraClient {
+  return new JiraClient(host, bearerToken);
 }
 
 export { JiraClient };

@@ -25,6 +25,7 @@ const PUBLIC_PATHS = [
   "/api/agents/actions",
   "/api/agents/health-check",
   "/api/dashboard",
+  "/api/audit",
   "/api/settings",
   "/api/events",
 ];
@@ -42,9 +43,11 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
   });
 
   await fastify.register(fjwt, {
-    decode: { complete: true },
     secret: (_request: FastifyRequest, token: any) => {
       return new Promise((resolve, reject) => {
+        if (!token?.header?.kid) {
+          return reject(new Error("Token is not a valid JWT (missing header.kid) — likely an opaque access_token"));
+        }
         const kid = token.header.kid;
         client.getSigningKey(kid, (err: Error | null, key: any) => {
           if (err) return reject(err);
@@ -64,7 +67,14 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
       try {
         await request.jwtVerify();
       } catch (err) {
-        // Ignore JWT verify errors for public paths
+        // Log JWT errors on public paths so we can diagnose auth issues
+        const authHeader = request.headers.authorization;
+        if (authHeader) {
+          request.log.warn(
+            { error: (err as Error).message, hasToken: !!authHeader },
+            "JWT verification failed on public path (token was sent but rejected)"
+          );
+        }
       }
       return;
     }

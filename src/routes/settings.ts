@@ -62,6 +62,9 @@ export function getOrgConfig(orgId: string): OrgConfig {
   return configStore.get(orgId) ?? { ...DEFAULT_CONFIG };
 }
 
+// ── Demo mode state ──
+let demoModeEnabled = false;
+
 export async function settingsRoutes(fastify: FastifyInstance) {
   // ── Get config ──
   fastify.get("/api/settings/config", async (request) => {
@@ -69,6 +72,21 @@ export async function settingsRoutes(fastify: FastifyInstance) {
     const orgId = (user?.org_id as string) ?? "default";
     return { config: getOrgConfig(orgId) };
   });
+
+  // ── Demo mode ──
+  fastify.get("/api/settings/demo-mode", async () => {
+    return { demoMode: demoModeEnabled };
+  });
+
+  fastify.post<{ Body: { demoMode: boolean } }>(
+    "/api/settings/demo-mode",
+    async (request) => {
+      const body = request.body ?? {};
+      demoModeEnabled = !!body.demoMode;
+      request.log.info({ demoMode: demoModeEnabled }, "Demo mode toggled");
+      return { demoMode: demoModeEnabled };
+    }
+  );
 
   // ── Save config ──
   fastify.post<{ Body: Partial<OrgConfig> }>(

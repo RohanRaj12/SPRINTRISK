@@ -8,13 +8,16 @@ import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
 import { EmptyState } from "@/components/ui/empty-state";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export default function JiraPage() {
+  const { isLoading: authLoading } = useAuth();
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [issues, setIssues] = useState<IssueProps[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (authLoading) return;
     async function fetchIssues() {
       setLoading(true);
       try {
@@ -28,7 +31,7 @@ export default function JiraPage() {
       }
     }
     fetchIssues();
-  }, []);
+  }, [authLoading]);
 
   const filteredIssues = filter === "all"
     ? issues

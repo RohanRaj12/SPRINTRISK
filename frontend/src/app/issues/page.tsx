@@ -8,8 +8,10 @@ import { IssueDetailModal } from "@/components/features/issue-detail";
 import { type IssueProps } from "@/components/features/issue-feed";
 import { EmptyState } from "@/components/ui/empty-state";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export default function IssuesPage() {
+  const { isLoading: authLoading } = useAuth();
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
   const [tab, setTab] = useState<"all" | "jira" | "github">("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -17,14 +19,14 @@ export default function IssuesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     async function fetchAll() {
       setLoading(true);
       try {
-        const [issuesRes, prsRes] = await Promise.all([
-          api.getDashboardIssues(),
-          api.getDashboardPrs(),
-        ]);
-        setIssues([...(issuesRes.data || []), ...(prsRes.data || [])]);
+        // /api/dashboard/issues already includes both Jira issues AND GitHub PRs
+        // mapped to the unified SprintIssue/IssueProps format
+        const issuesRes = await api.getDashboardIssues();
+        setIssues(issuesRes.data || []);
       } catch (err) {
         console.error("Failed to fetch issues", err);
       } finally {
@@ -32,7 +34,7 @@ export default function IssuesPage() {
       }
     }
     fetchAll();
-  }, []);
+  }, [authLoading]);
 
   const filtered = issues.filter((i) => {
     if (tab === "jira" && i.provider !== "jira") return false;

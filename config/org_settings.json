@@ -1,8 +1,8 @@
 {
   "default": {
     "jira": {
-      "site": "",
-      "projectKey": "",
+      "site": "sprintguardian.atlassian.net",
+      "projectKey": "TT",
       "boardName": "",
       "staleThresholdDays": 3
     },

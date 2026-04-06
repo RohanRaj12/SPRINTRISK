@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { IssueDetailModal } from "./issue-detail";
 import { EmptyState } from "@/components/ui/empty-state";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export interface IssueProps {
   id: string;
@@ -97,10 +98,12 @@ function IssueCard({ issue, onClick }: { issue: IssueProps; onClick: () => void 
 }
 
 export function IssueFeed() {
+  const { isLoading: authLoading } = useAuth();
   const [selectedIssue, setSelectedIssue] = useState<IssueProps | null>(null);
   const [issues, setIssues] = useState<IssueProps[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (authLoading) return;
     async function fetchIssues() {
       setLoading(true);
       try {
@@ -113,7 +116,7 @@ export function IssueFeed() {
       }
     }
     fetchIssues();
-  }, []);
+  }, [authLoading]);
 
   if (loading) {
     return (

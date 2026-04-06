@@ -7,21 +7,36 @@ import { Button } from "@/components/ui/button";
 import { IssueDetailModal } from "@/components/features/issue-detail";
 import { IssueProps } from "@/components/features/issue-feed";
 import { EmptyState } from "@/components/ui/empty-state";
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export default function GitHubPage() {
+  const { isLoading: authLoading } = useAuth();
   const [selectedPR, setSelectedPR] = useState<IssueProps | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [prs, setPrs] = useState<IssueProps[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (authLoading) return;
     async function fetchPRs() {
       setLoading(true);
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/dashboard/prs`);
-        if (res.ok) {
-          const json = await res.json();
-          setPrs(json.data || []);
-        }
+        const res = await api.getDashboardPrs();
+        // Map PRItem (backend shape) to IssueProps (frontend shape)
+        const mapped: IssueProps[] = (res.data || []).map((pr: any) => ({
+          id: `PR-${pr.number}`,
+          title: pr.title,
+          assignee: pr.author || "Unknown",
+          status: pr.ageInDays >= 3
+            ? "stale"
+            : pr.pendingReviewers?.length > 0
+              ? "review"
+              : "healthy",
+          daysStale: pr.ageInDays >= 3 ? pr.ageInDays : undefined,
+          provider: "github" as const,
+          url: pr.url,
+        }));
+        setPrs(mapped);
       } catch (err) {
         console.error("Failed to fetch PRs", err);
       } finally {
@@ -29,7 +44,7 @@ export default function GitHubPage() {
       }
     }
     fetchPRs();
-  }, []);
+  }, [authLoading]);
 
   const filteredPRs = filter === "all"
     ? prs

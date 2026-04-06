@@ -175,7 +175,7 @@ export class RealDataSource implements DataSource {
         provider: s.provider as "jira" | "github" | "slack",
         displayName: s.displayName,
         description: s.description,
-        status: s.status === "checking" ? "disconnected" as const : s.status as "connected" | "disconnected" | "error",
+        status: (s.status === "checking" || s.status === "not_linked") ? "disconnected" as const : s.status as "connected" | "disconnected" | "error",
         account: s.account,
         lastSync: s.lastChecked,
         scopes: s.scopes,
@@ -186,20 +186,66 @@ export class RealDataSource implements DataSource {
   // ── Private helpers ──
 
   private async fetchJiraIssues(userId: string): Promise<SprintIssue[]> {
-    const { getJiraClient } = await import("../integrations/jira-client.js");
+    const { getJiraClient, createJiraClientWithToken } = await import("../integrations/jira-client.js");
     const { getOrgConfig } = await import("../routes/settings.js");
     const { config } = await import("../config.js");
 
-    // Fresh every request — no caching
-    const client = getJiraClient();
+    const orgConfig = getOrgConfig("default");
+
+    // Try to get a Jira client — Token Vault first, then direct credentials
+    let client: import("../integrations/jira-client.js").JiraClient | null = null;
+
+    // Step 1: Try Token Vault (primary path for OAuth-linked users)
+    try {
+      const { getDelegatedToken } = await import("../services/token-vault.js");
+      const delegated = await getDelegatedToken(userId, "jira");
+      const jiraHost = orgConfig.jira.site || config.jira.host;
+
+      if (jiraHost && delegated.access_token) {
+        if (delegated.isFallback) {
+          // Fallback token is base64(email:token) for Basic auth — use direct client
+          client = getJiraClient();
+          console.info(`[RealDataSource] Using direct Jira credentials (fallback) for user ${userId}`);
+        } else {
+          // Real Token Vault OAuth token — use Bearer auth
+          client = createJiraClientWithToken(jiraHost, delegated.access_token);
+          console.info(`[RealDataSource] Using Token Vault Jira OAuth token for user ${userId}`);
+        }
+      } else if (!jiraHost) {
+        console.warn("[RealDataSource] Token Vault has Jira token but no host configured. Set jira.site in org settings or JIRA_HOST env var.");
+      }
+    } catch (err) {
+      console.warn("[RealDataSource] Token Vault Jira token unavailable:", (err as Error).message);
+    }
+
+    // Step 2: Fall back to direct credentials
     if (!client) {
-      console.warn("[RealDataSource] Jira client unavailable — no credentials configured.");
+      client = getJiraClient();
+    }
+
+    if (!client) {
+      console.warn("[RealDataSource] Jira client unavailable — no Token Vault token or direct credentials configured.");
       return [];
     }
 
-    // Project key: user settings take priority, then env fallback, then "SCRUM"
-    const orgConfig = getOrgConfig("default");
-    const projectKey = orgConfig.jira.projectKey || config.jira.defaultProject || "TT";
+    // Project key: user settings take priority, then env fallback
+    const projectKey = orgConfig.jira.projectKey || config.jira.defaultProject;
+    if (!projectKey) {
+      console.warn(
+        "[RealDataSource] No Jira project key configured. Set jira.projectKey in org settings or JIRA_DEFAULT_PROJECT env var. " +
+        "Attempting to discover projects..."
+      );
+      // Try to discover available projects
+      try {
+        const boards = await client.getBoards("");
+        if (boards.length > 0) {
+          console.info(`[RealDataSource] Discovered board: ${boards[0].name} (project: ${boards[0].location?.projectKey || "unknown"})`);
+        }
+      } catch {
+        // Best-effort discovery
+      }
+      return [];
+    }
     const staleDays = orgConfig.jira.staleThresholdDays || 3;
 
     try {

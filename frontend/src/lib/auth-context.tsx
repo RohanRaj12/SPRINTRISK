@@ -204,15 +204,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedToken = sessionStorage.getItem("access_token");
 
         if (storedToken) {
-          // Use id_token for API requests instead of access_token to bypass custom API strictness
+          // access_token is opaque (no audience requested), so use id_token
+          // for API calls — it's a JWT signed by Auth0 with the user's sub claim
           const idToken = sessionStorage.getItem("id_token");
           
           const userInfo = await fetchUserInfo(storedToken);
           if (userInfo) {
             setUser(userInfo);
-            setAccessToken(storedToken); // Opaque token kept for Auth0 /userinfo
+            setAccessToken(storedToken);
             setIsAuthenticated(true);
-            api.setAccessToken(idToken || storedToken); // Send JWT to our backend
+            api.setAccessToken(idToken || storedToken);
           } else {
             sessionStorage.removeItem("access_token");
             sessionStorage.removeItem("id_token");
